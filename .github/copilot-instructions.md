@@ -13,6 +13,8 @@
 
 **Always validate changes locally before pushing to main.**
 
+**Keep the local stack running.** After testing, do not run `docker compose down`. Leave the stack up so it remains available for browsing and further development. Only stop it when explicitly asked.
+
 When making code changes to any service (frontend, auth-api, hello-world, nginx, docker-compose, etc.):
 
 1. **Rebuild containers** — Run `docker compose build` to rebuild any changed images.
@@ -26,13 +28,14 @@ When making code changes to any service (frontend, auth-api, hello-world, nginx,
 5. **Run unit tests** — `npm test --prefix auth-api && npm test --prefix hello-world && npm test --prefix hello-world-restricted`
 6. **Fix any issues** — If local tests fail, debug and fix before proceeding.
 7. **Only then push** — Once the local deployment is confirmed working, commit and push to `main`.
+8. **Leave the stack running** — Do not tear down after pushing.
 
 **Do not push to main or trigger the GitHub Action unless the local deployment works as expected.**
 
 ## Project Architecture
 
-- **Local dev** uses Nginx as a reverse proxy (all services on `localhost:80`).
-- **Production (ACA)** has no Nginx — services are exposed directly with CORS.
+- **Local dev** uses Nginx as a reverse proxy (all services on `localhost:80`). The frontend container also runs its own nginx with API proxy.
+- **Production (ACA)** has no separate Nginx — the frontend container's nginx serves the SPA and reverse-proxies `/api/*` requests to backend ACAs (same-origin, no CORS needed).
 - `docker-compose.yml` orchestrates 6 services: nginx, frontend, auth-api, hello-world, hello-world-restricted, postgres.
 - Environment variables come from `.env` (see `.env.example` for the template).
 - auth-api proxies deployment requests to the finance-api in patelr3/actual-server-setup.
