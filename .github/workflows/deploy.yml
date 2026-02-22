@@ -125,3 +125,36 @@ jobs:
               --query '[0].properties.healthState' -o tsv)
             echo "patelr3-${svc}: ${STATUS}"
           done
+
+      - name: Smoke-test production endpoints
+        run: |
+          FRONTEND_URL="https://www.arayosun.com"
+          RETRIES=5
+          DELAY=15
+          PASS=0
+          FAIL=0
+
+          check() {
+            local desc="$1" url="$2" expected="$3"
+            for i in $(seq 1 $RETRIES); do
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$url") || CODE="000"
+              if [ "$CODE" = "$expected" ]; then
+                echo "  ✓ $desc (HTTP $CODE)"
+                PASS=$((PASS + 1))
+                return
+              fi
+              echo "  … $desc attempt $i: got $CODE, want $expected"
+              sleep $DELAY
+            done
+            echo "  ✗ $desc: expected $expected, got $CODE after $RETRIES attempts"
+            FAIL=$((FAIL + 1))
+          }
+
+          echo "=== Production Smoke Tests ==="
+          check "Frontend serves SPA"           "$FRONTEND_URL/"              "200"
+          check "Nginx proxies /api/auth/me"    "$FRONTEND_URL/api/auth/me"   "401"
+          check "Nginx proxies /api/hello/"     "$FRONTEND_URL/api/hello/"    "401"
+
+          echo ""
+          echo "=== Results: $PASS passed, $FAIL failed ==="
+          if [ "$FAIL" -gt 0 ]; then exit 1; fi

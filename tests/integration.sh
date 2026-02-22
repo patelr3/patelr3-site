@@ -101,6 +101,16 @@ check_json "GET /auth/me after logout returns unauthenticated" "$BASE_URL/api/au
 # Cleanup
 rm -f "$COOKIE_JAR"
 
+# ── Frontend nginx proxy (verifies proxy works without outer nginx) ──
+echo ""
+echo "Frontend Nginx Proxy (production-like):"
+FE_SPA=$(docker compose exec -T frontend curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/ 2>/dev/null || echo "skip")
+FE_AUTH=$(docker compose exec -T frontend curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/auth/me 2>/dev/null || echo "skip")
+FE_HELLO=$(docker compose exec -T frontend curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/hello/ 2>/dev/null || echo "skip")
+if [ "$FE_SPA" = "200" ]; then pass "frontend direct: SPA serves HTML"; else fail "frontend direct: SPA" "expected 200, got $FE_SPA"; fi
+if [ "$FE_AUTH" = "401" ]; then pass "frontend direct: /api/auth/me proxied"; else fail "frontend direct: /api/auth/me" "expected 401, got $FE_AUTH"; fi
+if [ "$FE_HELLO" = "401" ]; then pass "frontend direct: /api/hello/ proxied"; else fail "frontend direct: /api/hello/" "expected 401, got $FE_HELLO"; fi
+
 # ── Summary ────────────────────────────────────────────────────
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
