@@ -2,18 +2,6 @@ import { useNavigate } from "react-router-dom";
 
 const SERVICE_PREVIEWS = [
   {
-    name: "Hello World",
-    description:
-      "A simple REST API that returns a greeting — demonstrating containerized microservice deployment.",
-    icon: "👋",
-  },
-  {
-    name: "Hello World (Restricted)",
-    description:
-      "The same API with role-based access control — request permission from an admin before you can use it.",
-    icon: "🔒",
-  },
-  {
     name: "Actual Budget",
     description:
       "A self-hosted personal finance manager. Each user gets their own isolated cloud instance.",
