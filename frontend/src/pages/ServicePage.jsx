@@ -162,9 +162,6 @@ function DeploymentPanel({ deploy, loading, action, onAction, onRefresh }) {
 
         {status === "running" && (
           <>
-            <button onClick={() => onAction("PUT")} disabled={loading}>
-              {loading && action === "Updating" ? "Updating…" : "Update to Latest"}
-            </button>
             <button className="danger-btn" onClick={() => {
               if (confirm("Delete your Actual Budget instance? Your data will be preserved in backups.")) {
                 onAction("DELETE");
