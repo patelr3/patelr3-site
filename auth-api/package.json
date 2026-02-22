@@ -5,7 +5,16 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "test": "GOOGLE_CLIENT_ID=test GOOGLE_CLIENT_SECRET=test NODE_OPTIONS='--experimental-vm-modules' npx jest --forceExit"
+  },
+  "jest": {
+    "transform": {},
+    "testEnvironment": "node"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
