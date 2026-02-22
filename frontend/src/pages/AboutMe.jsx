@@ -78,7 +78,8 @@ export default function AboutMe() {
               rel="noopener noreferrer"
             >
               M.S. Information Systems
-            </a>
+            </a>{" "}
+            (2023)
           </li>
           <li>
             <strong>Centralia College</strong> — A.S. (2016)
