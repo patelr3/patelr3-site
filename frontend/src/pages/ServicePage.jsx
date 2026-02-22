@@ -54,7 +54,12 @@ export default function ServicePage({ user }) {
     setDeployLoading(true);
     setDeployAction(method === "POST" ? "Creating" : method === "PUT" ? "Updating" : "Deleting");
     try {
-      await fetch(api.deploymentStatus(slug), { method, credentials: "include" });
+      const res = await fetch(api.deploymentStatus(slug), { method, credentials: "include" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setDeploy({ status: "error", message: data.error || `Action failed (${res.status})` });
+        return;
+      }
       // Poll status after action
       await new Promise((r) => setTimeout(r, 2000));
       await fetchDeployStatus();

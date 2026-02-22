@@ -28,7 +28,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
   }
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
@@ -437,11 +437,17 @@ app.delete("/auth/users/:id", requireAuth, requireAdmin, async (req, res) => {
 async function financeRequest(method, userId) {
   if (!config.financeApiUrl) return { status: "not_configured" };
   const url = `${config.financeApiUrl}/deployments/${userId}`;
+  console.log(`[finance-proxy] ${method} ${url}`);
   const res = await fetch(url, {
     method,
     headers: { "X-Api-Key": config.financeApiKey },
   });
-  return res.json();
+  const data = await res.json();
+  if (!res.ok) {
+    console.error(`[finance-proxy] ${method} ${url} → ${res.status}`, data);
+    throw new Error(data.message || data.error || `Finance API ${res.status}`);
+  }
+  return data;
 }
 
 app.get("/auth/deployments/actualbudget", requireAuth, async (req, res) => {
