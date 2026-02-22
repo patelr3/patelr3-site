@@ -24,7 +24,16 @@ nav {
   margin-bottom: 2rem;
   flex-wrap: wrap;
 }
-nav .brand { font-weight: 700; font-size: 1.25rem; margin-right: auto; }
+nav .brand {
+  display: flex;
+  align-items: center;
+  margin-right: auto;
+  text-decoration: none;
+}
+nav .brand-logo {
+  height: 36px;
+  width: auto;
+}
 nav .nav-links {
   display: flex;
   align-items: center;

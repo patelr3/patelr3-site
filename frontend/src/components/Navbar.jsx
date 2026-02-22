@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, Link } from "react-router-dom";
+import logo from "/arayosun-logo.png";
 
 export default function Navbar({ user, onLogout }) {
   const navigate = useNavigate();
@@ -15,7 +16,9 @@ export default function Navbar({ user, onLogout }) {
 
   return (
     <nav>
-      <span className="brand">patelr3</span>
+      <Link to="/" className="brand" onClick={handleNavClick}>
+        <img src={logo} alt="Arayosun" className="brand-logo" />
+      </Link>
       <button className="hamburger" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu">
         {menuOpen ? "✕" : "☰"}
       </button>

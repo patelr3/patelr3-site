@@ -15,7 +15,7 @@ export default function HomePage({ user }) {
   return (
     <div className="page home">
       <section className="hero">
-        <h1>Welcome to patelr3's site</h1>
+        <h1>Welcome to the Arayosun site</h1>
         <p>
           This is a personal platform where I build and host cloud-native
           services. Sign in to explore interactive microservices, request access
