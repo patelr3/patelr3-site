@@ -15,6 +15,7 @@ param minReplicas int = 0
 param maxReplicas int = 1
 param cpu string = '0.25'
 param memory string = '0.5Gi'
+param customDomains array = []
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: acrName
@@ -33,6 +34,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
         targetPort: targetPort
         transport: 'auto'
         allowInsecure: false
+        customDomains: customDomains
       }
       registries: [
         {

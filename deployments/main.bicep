@@ -131,6 +131,21 @@ module helloWorld 'modules/container-app.bicep' = {
   }
 }
 
+// ── Existing managed certificates (created by bind-domains.sh) ──
+resource caeRef 'Microsoft.App/managedEnvironments@2024-03-01' existing = {
+  name: envName
+}
+
+resource certWww 'Microsoft.App/managedEnvironments/managedCertificates@2024-03-01' existing = {
+  name: 'mc-patelr3-cae-www-arayosun-com-7175'
+  parent: caeRef
+}
+
+resource certApex 'Microsoft.App/managedEnvironments/managedCertificates@2024-03-01' existing = {
+  name: 'mc-patelr3-cae-arayosun-com-4571'
+  parent: caeRef
+}
+
 // ── Frontend Container App ─────────────────────────────────────
 module frontend 'modules/container-app.bicep' = {
   name: 'frontend'
@@ -147,6 +162,18 @@ module frontend 'modules/container-app.bicep' = {
     external: true
     env: []
     secrets: []
+    customDomains: [
+      {
+        name: 'www.arayosun.com'
+        certificateId: certWww.id
+        bindingType: 'SniEnabled'
+      }
+      {
+        name: 'arayosun.com'
+        certificateId: certApex.id
+        bindingType: 'SniEnabled'
+      }
+    ]
   }
 }
 
