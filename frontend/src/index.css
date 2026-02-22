@@ -22,8 +22,23 @@ nav {
   padding: 0.75rem 0;
   border-bottom: 2px solid #e0e0e0;
   margin-bottom: 2rem;
+  flex-wrap: wrap;
 }
 nav .brand { font-weight: 700; font-size: 1.25rem; margin-right: auto; }
+nav .nav-links {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+nav .hamburger {
+  display: none;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  line-height: 1;
+}
 nav button, nav .tab {
   background: none;
   border: none;
@@ -36,9 +51,35 @@ nav button, nav .tab {
 }
 nav button:hover, nav .tab:hover { background: #e0e0e0; }
 nav .tab.active { background: #333; color: #fff; }
-.login-btn { background: #4285f4 !important; color: #fff !important; font-weight: 600; }
+.login-btn {
+  background: #4285f4 !important;
+  color: #fff !important;
+  font-weight: 600;
+  border-radius: 20px !important;
+  padding: 0.4rem 1.2rem !important;
+}
 .login-btn:hover { background: #3367d6 !important; }
 .logout-btn { color: #c0392b !important; }
+
+@media (max-width: 600px) {
+  nav .hamburger { display: block; }
+  nav .nav-links {
+    display: none;
+    flex-direction: column;
+    width: 100%;
+    gap: 0.25rem;
+    padding-top: 0.5rem;
+  }
+  nav .nav-links.open { display: flex; }
+  nav .nav-links .tab,
+  nav .nav-links .login-btn,
+  nav .nav-links .logout-btn,
+  nav .nav-links .user-name-link {
+    width: 100%;
+    text-align: center;
+    padding: 0.5rem 0.8rem;
+  }
+}
 
 /* ── Pages ──────────────────────────────────────── */
 .page { animation: fadeIn 0.2s ease; }
