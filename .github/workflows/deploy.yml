@@ -60,23 +60,16 @@ jobs:
       - name: Build & push images
         run: |
           ACR_SERVER="${{ env.ACR_NAME }}.azurecr.io"
-          ENV_DOMAIN="gentlebay-ad6f417d.westus2.azurecontainerapps.io"
-          AUTH_API_URL="https://patelr3-auth-api.${ENV_DOMAIN}"
-          HELLO_API_URL="https://patelr3-hello-world.${ENV_DOMAIN}"
-          HELLO_RESTRICTED_API_URL="https://patelr3-hello-world-restricted.${ENV_DOMAIN}"
 
-          # Frontend needs API URLs baked in at build time
+          # Frontend — nginx serves SPA + proxies API (no build args needed)
           docker build \
-            --build-arg VITE_AUTH_API_URL="${AUTH_API_URL}" \
-            --build-arg VITE_HELLO_API_URL="${HELLO_API_URL}" \
-            --build-arg VITE_HELLO_RESTRICTED_API_URL="${HELLO_RESTRICTED_API_URL}" \
             -t "${ACR_SERVER}/frontend:${{ env.IMAGE_TAG }}" \
             -t "${ACR_SERVER}/frontend:latest" \
             ./frontend
           docker push "${ACR_SERVER}/frontend:${{ env.IMAGE_TAG }}"
           docker push "${ACR_SERVER}/frontend:latest"
 
-          # Backend services don't need build args
+          # Backend services
           for svc in auth-api hello-world hello-world-restricted; do
             docker build -t "${ACR_SERVER}/${svc}:${{ env.IMAGE_TAG }}" \
                          -t "${ACR_SERVER}/${svc}:latest" \

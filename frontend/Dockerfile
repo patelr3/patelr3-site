@@ -4,16 +4,14 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
 COPY . .
-ARG VITE_AUTH_API_URL=""
-ARG VITE_HELLO_API_URL=""
-ARG VITE_HELLO_RESTRICTED_API_URL=""
-ARG VITE_ACTUALBUDGET_URL=""
 RUN npm run build
 
-# Serve the built SPA with a lightweight static server
-FROM node:20-alpine
-RUN npm install -g serve@14
-WORKDIR /app
-COPY --from=build /app/dist ./dist
+# Serve via nginx with API reverse proxy
+FROM nginx:1.25-alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# nginx config template — env vars (AUTH_API_UPSTREAM etc.) substituted at runtime
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+
 EXPOSE 3000
-CMD ["serve", "-s", "dist", "-l", "3000"]
+CMD ["nginx", "-g", "daemon off;"]

@@ -1,23 +1,16 @@
 services:
-  nginx:
-    image: nginx:1.25-alpine
+  frontend:
+    build: ./frontend
     ports:
-      - "80:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - "${FRONTEND_PORT:-80}:3000"
+    environment:
+      - AUTH_API_UPSTREAM=http://auth-api:8000
+      - HELLO_API_UPSTREAM=http://hello-world:5000
+      - HELLO_RESTRICTED_API_UPSTREAM=http://hello-world-restricted:5001
     depends_on:
-      - frontend
       - auth-api
       - hello-world
       - hello-world-restricted
-    restart: unless-stopped
-
-  frontend:
-    build: ./frontend
-    expose:
-      - "3000"
-    environment:
-      - VITE_API_URL=/api
     restart: unless-stopped
 
   auth-api:
