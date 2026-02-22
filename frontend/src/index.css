@@ -284,6 +284,14 @@ nav a { text-decoration: none; }
   font-size: 0.8rem;
   cursor: pointer;
 }
+.auth-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.auth-google { background: #e8f0fe; color: #1a73e8; }
 .pw-form label {
   display: block;
   font-size: 0.85rem;

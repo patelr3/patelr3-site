@@ -76,6 +76,12 @@ export default function Account({ user }) {
           <label>Member Since</label>
           <span>{new Date(account.createdAt).toLocaleDateString()}</span>
         </div>
+        {account.isGoogleUser && (
+          <div className="account-field">
+            <label>Sign-in Method</label>
+            <span className="auth-badge auth-google">Google OAuth</span>
+          </div>
+        )}
       </div>
 
       {account.isGoogleUser && !account.hasPassword ? null : (

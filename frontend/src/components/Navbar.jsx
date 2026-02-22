@@ -27,15 +27,16 @@ export default function Navbar({ user, onLogout }) {
         <NavLink to="/" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} end onClick={handleNavClick}>
           Home
         </NavLink>
-        <NavLink to="/about" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} onClick={handleNavClick}>
-          About Me
-        </NavLink>
 
         {user && (
           <NavLink to="/dashboard" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} onClick={handleNavClick}>
             Dashboard
           </NavLink>
         )}
+
+        <NavLink to="/about" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} onClick={handleNavClick}>
+          About Me
+        </NavLink>
 
         {user?.role === "admin" && (
           <NavLink to="/admin" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} onClick={handleNavClick}>
