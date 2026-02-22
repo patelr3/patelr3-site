@@ -1,13 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, createContext } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import AboutMe from "./pages/AboutMe";
 import Dashboard from "./pages/Dashboard";
 import SignIn from "./pages/SignIn";
+import ServicePage from "./pages/ServicePage";
+import AdminPanel from "./pages/AdminPanel";
 import api from "./api";
+
+export const UserContext = createContext(null);
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [tab, setTab] = useState("about");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch(api.authMe(), { credentials: "include" })
@@ -15,26 +20,49 @@ export default function App() {
       .then((data) => {
         if (data?.authenticated) setUser(data);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const handleLogout = async () => {
     await fetch(api.authLogout(), { credentials: "include" });
     setUser(null);
-    setTab("about");
   };
 
   const handleSignInSuccess = (data) => {
     setUser(data);
-    setTab("dashboard");
   };
 
+  if (loading) return null;
+
   return (
-    <div className="app">
-      <Navbar user={user} tab={tab} setTab={setTab} onLogout={handleLogout} />
-      {tab === "about" && <AboutMe />}
-      {tab === "signin" && <SignIn onSuccess={handleSignInSuccess} />}
-      {tab === "dashboard" && <Dashboard user={user} />}
-    </div>
+    <UserContext.Provider value={user}>
+      <BrowserRouter>
+        <div className="app">
+          <Navbar user={user} onLogout={handleLogout} />
+          <Routes>
+            <Route path="/" element={<AboutMe />} />
+            <Route
+              path="/signin"
+              element={
+                user ? <Navigate to="/dashboard" /> : <SignIn onSuccess={handleSignInSuccess} />
+              }
+            />
+            <Route
+              path="/dashboard"
+              element={user ? <Dashboard user={user} /> : <Navigate to="/signin" />}
+            />
+            <Route
+              path="/services/:slug"
+              element={user ? <ServicePage user={user} /> : <Navigate to="/signin" />}
+            />
+            {user?.role === "admin" && (
+              <Route path="/admin" element={<AdminPanel user={user} />} />
+            )}
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </div>
+      </BrowserRouter>
+    </UserContext.Provider>
   );
 }

@@ -1,37 +1,44 @@
-import api from "../api";
+import { NavLink, useNavigate } from "react-router-dom";
 
-export default function Navbar({ user, tab, setTab, onLogout }) {
+export default function Navbar({ user, onLogout }) {
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await onLogout();
+    navigate("/");
+  };
+
   return (
     <nav>
       <span className="brand">patelr3</span>
 
-      <button
-        className={`tab ${tab === "about" ? "active" : ""}`}
-        onClick={() => setTab("about")}
-      >
+      <NavLink to="/" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} end>
         About Me
-      </button>
+      </NavLink>
 
       {user && (
-        <button
-          className={`tab ${tab === "dashboard" ? "active" : ""}`}
-          onClick={() => setTab("dashboard")}
-        >
+        <NavLink to="/dashboard" className={({ isActive }) => `tab ${isActive ? "active" : ""}`}>
           Dashboard
-        </button>
+        </NavLink>
+      )}
+
+      {user?.role === "admin" && (
+        <NavLink to="/admin" className={({ isActive }) => `tab ${isActive ? "active" : ""}`}>
+          Admin
+        </NavLink>
       )}
 
       {user ? (
         <>
           <span className="user-info">{user.name}</span>
-          <button className="logout-btn" onClick={onLogout}>
+          <button className="logout-btn" onClick={handleLogout}>
             Logout
           </button>
         </>
       ) : (
-        <button className="login-btn" onClick={() => setTab("signin")}>
+        <NavLink to="/signin" className="login-btn">
           Sign In
-        </button>
+        </NavLink>
       )}
     </nav>
   );

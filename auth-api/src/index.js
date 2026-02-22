@@ -6,7 +6,12 @@ import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import config from "./config.js";
-import { initDb, upsertGoogleUser, findUserByEmail, createLocalUser } from "./db.js";
+import {
+  initDb, upsertGoogleUser, findUserByEmail, createLocalUser,
+  listServices, getServiceBySlug, updateService,
+  getUserAccess, grantAccess,
+  createAccessRequest, listAccessRequests, updateAccessRequest, getUserPendingRequests,
+} from "./db.js";
 
 const app = express();
 app.use(express.json());
@@ -20,7 +25,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
   }
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
@@ -180,6 +185,117 @@ app.get("/auth/verify", (req, res) => {
 app.get("/auth/logout", (_req, res) => {
   res.clearCookie("access_token", { path: "/" });
   res.redirect(config.frontendUrl);
+});
+
+// ── JWT auth middleware ─────────────────────────────────────────
+
+function requireAuth(req, res, next) {
+  const token = req.cookies.access_token;
+  if (!token) return res.status(401).json({ error: "Not authenticated" });
+  try {
+    req.jwtUser = jwt.verify(token, config.jwtSecret);
+    next();
+  } catch {
+    res.status(401).json({ error: "Invalid token" });
+  }
+}
+
+function requireAdmin(req, res, next) {
+  if (req.jwtUser?.role !== "admin") {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+}
+
+// ── Service endpoints ──────────────────────────────────────────
+
+app.get("/auth/services", requireAuth, async (req, res) => {
+  try {
+    const services = await listServices();
+    const isAdmin = req.jwtUser.role === "admin";
+    const userId = Number(req.jwtUser.sub);
+    const accessIds = await getUserAccess(userId);
+    const pendingIds = await getUserPendingRequests(userId);
+
+    const visible = services
+      .filter((s) => isAdmin || s.is_visible)
+      .map((s) => ({
+        id: s.id,
+        slug: s.slug,
+        name: s.name,
+        description: s.description,
+        isVisible: s.is_visible,
+        isRestricted: s.is_restricted,
+        hasAccess: isAdmin || !s.is_restricted || accessIds.includes(s.id),
+        pendingRequest: pendingIds.includes(s.id),
+      }));
+
+    res.json(visible);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to list services" });
+  }
+});
+
+app.patch("/auth/services/:id", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { isVisible, isRestricted } = req.body;
+    const fields = {};
+    if (typeof isVisible === "boolean") fields.is_visible = isVisible;
+    if (typeof isRestricted === "boolean") fields.is_restricted = isRestricted;
+    if (Object.keys(fields).length === 0) {
+      return res.status(400).json({ error: "No valid fields to update" });
+    }
+    const updated = await updateService(Number(req.params.id), fields);
+    if (!updated) return res.status(404).json({ error: "Service not found" });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update service" });
+  }
+});
+
+// ── Access request endpoints ───────────────────────────────────
+
+app.post("/auth/access-requests", requireAuth, async (req, res) => {
+  try {
+    const { serviceId } = req.body;
+    if (!serviceId) return res.status(400).json({ error: "serviceId is required" });
+    const request = await createAccessRequest(Number(req.jwtUser.sub), serviceId);
+    if (!request) return res.status(409).json({ error: "Request already pending" });
+    res.status(201).json(request);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to create access request" });
+  }
+});
+
+app.get("/auth/access-requests", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const status = req.query.status || "pending";
+    const requests = await listAccessRequests(status);
+    res.json(requests);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to list access requests" });
+  }
+});
+
+app.post("/auth/access-requests/:id/approve", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const ar = await updateAccessRequest(Number(req.params.id), "approved", Number(req.jwtUser.sub));
+    if (!ar) return res.status(404).json({ error: "Request not found" });
+    await grantAccess(ar.user_id, ar.service_id);
+    res.json(ar);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to approve request" });
+  }
+});
+
+app.post("/auth/access-requests/:id/deny", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const ar = await updateAccessRequest(Number(req.params.id), "denied", Number(req.jwtUser.sub));
+    if (!ar) return res.status(404).json({ error: "Request not found" });
+    res.json(ar);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to deny request" });
+  }
 });
 
 // ── Start ──────────────────────────────────────────────────────

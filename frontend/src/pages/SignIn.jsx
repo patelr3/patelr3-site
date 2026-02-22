@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../api";
 
 export default function SignIn({ onSuccess }) {
-  const [mode, setMode] = useState("login"); // "login" or "register"
+  const navigate = useNavigate();
+  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -31,6 +33,7 @@ export default function SignIn({ onSuccess }) {
         setError(data.error || "Something went wrong");
       } else {
         onSuccess(data);
+        navigate("/dashboard");
       }
     } catch {
       setError("Network error. Please try again.");

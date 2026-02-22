@@ -1,22 +1,35 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../api";
 
 export default function Dashboard({ user }) {
-  const [helloResponse, setHelloResponse] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
-  const callHelloWorld = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(api.hello(), { credentials: "include" });
-      const data = await res.json();
-      setHelloResponse(JSON.stringify(data, null, 2));
-    } catch (err) {
-      setHelloResponse(`Error: ${err.message}`);
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    fetch(api.services(), { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setServices)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const requestAccess = async (serviceId) => {
+    const res = await fetch(api.accessRequests(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ serviceId }),
+    });
+    if (res.ok || res.status === 409) {
+      setServices((prev) =>
+        prev.map((s) => (s.id === serviceId ? { ...s, pendingRequest: true } : s))
+      );
     }
   };
+
+  if (loading) return <div className="page"><p>Loading…</p></div>;
 
   return (
     <div className="page dashboard">
@@ -25,14 +38,32 @@ export default function Dashboard({ user }) {
         Signed in as <strong>{user?.email}</strong> (role: {user?.role})
       </p>
 
-      <div className="service-card">
-        <h3>🌍 Hello-World Service</h3>
-        <p>A sample micro-service running in its own container.</p>
-        <button onClick={callHelloWorld} disabled={loading}>
-          {loading ? "Calling…" : "Call Service"}
-        </button>
-        {helloResponse && <div className="response">{helloResponse}</div>}
-      </div>
+      {services.length === 0 && <p>No services available.</p>}
+
+      {services.map((svc) => (
+        <div key={svc.id} className="service-card">
+          <h3>{svc.name}</h3>
+          <p>{svc.description}</p>
+          {!svc.isVisible && (
+            <span className="badge badge-hidden">Hidden</span>
+          )}
+          {svc.isRestricted && (
+            <span className="badge badge-restricted">Restricted</span>
+          )}
+
+          {svc.hasAccess ? (
+            <button onClick={() => navigate(`/services/${svc.slug}`)}>
+              Open Service
+            </button>
+          ) : svc.pendingRequest ? (
+            <button disabled className="btn-pending">Access Requested</button>
+          ) : (
+            <button className="btn-request" onClick={() => requestAccess(svc.id)}>
+              Request Access
+            </button>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

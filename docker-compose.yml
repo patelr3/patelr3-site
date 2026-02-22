@@ -9,6 +9,7 @@ services:
       - frontend
       - auth-api
       - hello-world
+      - hello-world-restricted
     restart: unless-stopped
 
   frontend:
@@ -38,6 +39,15 @@ services:
     build: ./hello-world
     expose:
       - "5000"
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - FRONTEND_URL=${FRONTEND_URL}
+    restart: unless-stopped
+
+  hello-world-restricted:
+    build: ./hello-world-restricted
+    expose:
+      - "5001"
     environment:
       - JWT_SECRET=${JWT_SECRET}
       - FRONTEND_URL=${FRONTEND_URL}
