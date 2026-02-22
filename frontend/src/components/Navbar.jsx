@@ -30,7 +30,9 @@ export default function Navbar({ user, onLogout }) {
 
       {user ? (
         <>
-          <span className="user-info">{user.name}</span>
+          <NavLink to="/account" className={({ isActive }) => `user-name-link ${isActive ? "active" : ""}`}>
+            {user.name}
+          </NavLink>
           <button className="logout-btn" onClick={handleLogout}>
             Logout
           </button>

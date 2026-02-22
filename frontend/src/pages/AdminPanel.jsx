@@ -4,16 +4,19 @@ import api from "../api";
 export default function AdminPanel({ user }) {
   const [services, setServices] = useState([]);
   const [requests, setRequests] = useState([]);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
     try {
-      const [svcsRes, reqsRes] = await Promise.all([
+      const [svcsRes, reqsRes, usersRes] = await Promise.all([
         fetch(api.services(), { credentials: "include" }),
         fetch(api.accessRequests(), { credentials: "include" }),
+        fetch(api.users(), { credentials: "include" }),
       ]);
       if (svcsRes.ok) setServices(await svcsRes.json());
       if (reqsRes.ok) setRequests(await reqsRes.json());
+      if (usersRes.ok) setUsers(await usersRes.json());
     } catch { /* ignore */ }
     setLoading(false);
   };
@@ -39,6 +42,16 @@ export default function AdminPanel({ user }) {
     if (res.ok) fetchData();
   };
 
+  const changeRole = async (userId, newRole) => {
+    const res = await fetch(api.userRole(userId), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ role: newRole }),
+    });
+    if (res.ok) fetchData();
+  };
+
   if (loading) return <div className="page"><p>Loading…</p></div>;
 
   return (
@@ -46,6 +59,46 @@ export default function AdminPanel({ user }) {
       <h2>Admin Panel</h2>
 
       <section>
+        <h3>User Management</h3>
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Name</th>
+              <th>Role</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id}>
+                <td>{u.email}</td>
+                <td>{u.display_name}</td>
+                <td>
+                  <span className={`role-badge role-${u.role}`}>{u.role}</span>
+                </td>
+                <td>
+                  {u.id !== user.sub && u.id !== Number(user.sub) && (
+                    <select
+                      value={u.role}
+                      onChange={(e) => changeRole(u.id, e.target.value)}
+                      className="role-select"
+                    >
+                      <option value="user">user</option>
+                      <option value="admin">admin</option>
+                    </select>
+                  )}
+                  {(u.id === user.sub || u.id === Number(user.sub)) && (
+                    <span style={{ color: "#999", fontSize: "0.8rem" }}>You</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      <section style={{ marginTop: "2rem" }}>
         <h3>Service Management</h3>
         <table className="admin-table">
           <thead>

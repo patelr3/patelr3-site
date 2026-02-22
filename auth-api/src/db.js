@@ -69,6 +69,16 @@ export async function initDb() {
     `UPDATE users SET role = 'admin', updated_at = NOW() WHERE email = $1 AND role != 'admin'`,
     [ADMIN_EMAIL]
   );
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id          SERIAL PRIMARY KEY,
+      user_id     INT REFERENCES users(id) ON DELETE CASCADE,
+      token       VARCHAR(255) UNIQUE NOT NULL,
+      expires_at  TIMESTAMPTZ NOT NULL,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
 }
 
 export async function upsertGoogleUser(profile) {
@@ -213,6 +223,61 @@ export async function getUserPendingRequests(userId) {
     [userId]
   );
   return rows.map((r) => r.service_id);
+}
+
+// ── User management queries ────────────────────────────────────
+
+export async function findUserById(id) {
+  const { rows } = await pool.query("SELECT * FROM users WHERE id = $1", [id]);
+  return rows[0] || null;
+}
+
+export async function listUsers() {
+  const { rows } = await pool.query(
+    "SELECT id, email, display_name, role, created_at FROM users ORDER BY id"
+  );
+  return rows;
+}
+
+export async function updateUserRole(userId, role) {
+  const { rows } = await pool.query(
+    `UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2 RETURNING id, email, display_name, role`,
+    [role, userId]
+  );
+  return rows[0];
+}
+
+export async function updateUserPassword(userId, passwordHash) {
+  await pool.query(
+    `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+    [passwordHash, userId]
+  );
+}
+
+// ── Password reset token queries ───────────────────────────────
+
+export async function createResetToken(userId, token, expiresAt) {
+  // Remove any existing tokens for this user
+  await pool.query("DELETE FROM password_reset_tokens WHERE user_id = $1", [userId]);
+  const { rows } = await pool.query(
+    `INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, $3) RETURNING *`,
+    [userId, token, expiresAt]
+  );
+  return rows[0];
+}
+
+export async function findResetToken(token) {
+  const { rows } = await pool.query(
+    `SELECT prt.*, u.email FROM password_reset_tokens prt
+     JOIN users u ON prt.user_id = u.id
+     WHERE prt.token = $1 AND prt.expires_at > NOW()`,
+    [token]
+  );
+  return rows[0] || null;
+}
+
+export async function deleteResetToken(token) {
+  await pool.query("DELETE FROM password_reset_tokens WHERE token = $1", [token]);
 }
 
 export default pool;

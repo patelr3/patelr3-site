@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import api from "../api";
 
 export default function SignIn({ onSuccess }) {
@@ -114,6 +114,8 @@ export default function SignIn({ onSuccess }) {
               <button type="button" onClick={() => { setMode("register"); setError(""); }}>
                 Sign up
               </button>
+              {" · "}
+              <Link to="/reset-password" className="forgot-link">Forgot password?</Link>
             </>
           ) : (
             <>

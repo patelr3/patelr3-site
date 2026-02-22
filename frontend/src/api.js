@@ -24,6 +24,16 @@ const api = {
   accessRequestApprove: (id) => `${AUTH_API}${authPrefix}/access-requests/${id}/approve`,
   accessRequestDeny: (id) => `${AUTH_API}${authPrefix}/access-requests/${id}/deny`,
 
+  // Account
+  account: () => `${AUTH_API}${authPrefix}/account`,
+  changePassword: () => `${AUTH_API}${authPrefix}/change-password`,
+  forgotPassword: () => `${AUTH_API}${authPrefix}/forgot-password`,
+  resetPassword: () => `${AUTH_API}${authPrefix}/reset-password`,
+
+  // Admin: users
+  users: () => `${AUTH_API}${authPrefix}/users`,
+  userRole: (id) => `${AUTH_API}${authPrefix}/users/${id}/role`,
+
   // Service endpoints (called directly by service pages)
   hello: () => `${HELLO_API}${helloPrefix}/`,
   helloRestricted: () => `${HELLO_API ? HELLO_API.replace("hello-world", "hello-world-restricted") : ""}/api/hello-restricted/`,

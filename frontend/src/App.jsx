@@ -6,6 +6,8 @@ import Dashboard from "./pages/Dashboard";
 import SignIn from "./pages/SignIn";
 import ServicePage from "./pages/ServicePage";
 import AdminPanel from "./pages/AdminPanel";
+import Account from "./pages/Account";
+import ResetPassword from "./pages/ResetPassword";
 import api from "./api";
 
 export const UserContext = createContext(null);
@@ -56,6 +58,11 @@ export default function App() {
               path="/services/:slug"
               element={user ? <ServicePage user={user} /> : <Navigate to="/signin" />}
             />
+            <Route
+              path="/account"
+              element={user ? <Account user={user} /> : <Navigate to="/signin" />}
+            />
+            <Route path="/reset-password" element={<ResetPassword />} />
             {user?.role === "admin" && (
               <Route path="/admin" element={<AdminPanel user={user} />} />
             )}

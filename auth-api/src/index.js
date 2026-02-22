@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "crypto";
 import session from "express-session";
 import cookieParser from "cookie-parser";
 import passport from "passport";
@@ -11,6 +12,8 @@ import {
   listServices, getServiceBySlug, updateService,
   getUserAccess, grantAccess,
   createAccessRequest, listAccessRequests, updateAccessRequest, getUserPendingRequests,
+  findUserById, listUsers, updateUserRole, updateUserPassword,
+  createResetToken, findResetToken, deleteResetToken,
 } from "./db.js";
 
 const app = express();
@@ -295,6 +298,114 @@ app.post("/auth/access-requests/:id/deny", requireAuth, requireAdmin, async (req
     res.json(ar);
   } catch (err) {
     res.status(500).json({ error: "Failed to deny request" });
+  }
+});
+
+// ── Account endpoints ───────────────────────────────────────────
+
+app.get("/auth/account", requireAuth, async (req, res) => {
+  try {
+    const user = await findUserById(Number(req.jwtUser.sub));
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json({
+      id: user.id,
+      email: user.email,
+      displayName: user.display_name,
+      role: user.role,
+      hasPassword: !!user.password_hash,
+      createdAt: user.created_at,
+    });
+  } catch {
+    res.status(500).json({ error: "Failed to fetch account" });
+  }
+});
+
+app.post("/auth/change-password", requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!newPassword || newPassword.length < 8) {
+    return res.status(400).json({ error: "New password must be at least 8 characters" });
+  }
+  try {
+    const user = await findUserById(Number(req.jwtUser.sub));
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // If user has an existing password, verify it
+    if (user.password_hash) {
+      if (!currentPassword) {
+        return res.status(400).json({ error: "Current password is required" });
+      }
+      const valid = await bcrypt.compare(currentPassword, user.password_hash);
+      if (!valid) return res.status(401).json({ error: "Current password is incorrect" });
+    }
+
+    const hash = await bcrypt.hash(newPassword, 12);
+    await updateUserPassword(user.id, hash);
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: "Failed to change password" });
+  }
+});
+
+// ── Password reset (token-based, no email sending) ─────────────
+
+app.post("/auth/forgot-password", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "Email is required" });
+
+  const user = await findUserByEmail(email);
+  // Always return success to avoid leaking user existence
+  if (!user) return res.json({ success: true });
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+  await createResetToken(user.id, token, expiresAt);
+
+  // In production you'd email this link. For now, log and return it.
+  const resetUrl = `${config.frontendUrl}/reset-password?token=${token}`;
+  console.log(`Password reset link for ${email}: ${resetUrl}`);
+  res.json({ success: true, resetUrl });
+});
+
+app.post("/auth/reset-password", async (req, res) => {
+  const { token, newPassword } = req.body;
+  if (!token || !newPassword) {
+    return res.status(400).json({ error: "Token and new password are required" });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters" });
+  }
+
+  const resetToken = await findResetToken(token);
+  if (!resetToken) return res.status(400).json({ error: "Invalid or expired reset token" });
+
+  const hash = await bcrypt.hash(newPassword, 12);
+  await updateUserPassword(resetToken.user_id, hash);
+  await deleteResetToken(token);
+  res.json({ success: true });
+});
+
+// ── Admin: user management ─────────────────────────────────────
+
+app.get("/auth/users", requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    const users = await listUsers();
+    res.json(users);
+  } catch {
+    res.status(500).json({ error: "Failed to list users" });
+  }
+});
+
+app.patch("/auth/users/:id/role", requireAuth, requireAdmin, async (req, res) => {
+  const { role } = req.body;
+  if (!role || !["user", "admin"].includes(role)) {
+    return res.status(400).json({ error: "Role must be 'user' or 'admin'" });
+  }
+  try {
+    const updated = await updateUserRole(Number(req.params.id), role);
+    if (!updated) return res.status(404).json({ error: "User not found" });
+    res.json(updated);
+  } catch {
+    res.status(500).json({ error: "Failed to update role" });
   }
 });
 
