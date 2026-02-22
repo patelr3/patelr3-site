@@ -1,0 +1,93 @@
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  RESOURCE_GROUP: patelr3-site-rg
+  ACR_NAME: patelr3acr
+  IMAGE_TAG: ${{ github.sha }}
+  AZURE_CLIENT_ID: e8de1562-63b2-4236-9c74-d8e3bf83e61d
+  AZURE_TENANT_ID: 50d3fb80-db3c-406e-bc9d-a22a6b825219
+  AZURE_SUBSCRIPTION_ID: 34154ec0-9335-4f09-a67a-bda54a403a14
+
+jobs:
+  build-and-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build & push images
+        run: |
+          ACR_SERVER="${{ env.ACR_NAME }}.azurecr.io"
+          for svc in frontend auth-api hello-world; do
+            docker build -t "${ACR_SERVER}/${svc}:${{ env.IMAGE_TAG }}" \
+                         -t "${ACR_SERVER}/${svc}:latest" \
+                         ./${svc}
+            docker push "${ACR_SERVER}/${svc}:${{ env.IMAGE_TAG }}"
+            docker push "${ACR_SERVER}/${svc}:latest"
+          done
+
+  deploy:
+    name: Deploy to Container Apps
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy Bicep
+        run: |
+          az deployment group create \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --template-file deployments/main.bicep \
+            --parameters deployments/parameters.json \
+            --parameters \
+              imageTag="${{ env.IMAGE_TAG }}" \
+              googleClientId="${{ secrets.GOOGLE_CLIENT_ID }}" \
+              googleClientSecret="${{ secrets.GOOGLE_CLIENT_SECRET }}" \
+              jwtSecret="${{ secrets.JWT_SECRET }}" \
+              postgresPassword="${{ secrets.POSTGRES_PASSWORD }}"
+
+      - name: Update container app revisions
+        run: |
+          ACR_SERVER="${{ env.ACR_NAME }}.azurecr.io"
+          for svc in frontend auth-api hello-world; do
+            az containerapp update \
+              --name "patelr3-${svc}" \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --image "${ACR_SERVER}/${svc}:${{ env.IMAGE_TAG }}"
+          done
+
+      - name: Verify deployments
+        run: |
+          for svc in frontend auth-api hello-world postgres; do
+            STATUS=$(az containerapp revision list \
+              --name "patelr3-${svc}" \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --query '[0].properties.healthState' -o tsv)
+            echo "patelr3-${svc}: ${STATUS}"
+          done
