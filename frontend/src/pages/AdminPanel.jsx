@@ -7,6 +7,12 @@ export default function AdminPanel({ user }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // User management filters
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  // Inline role editing
+  const [editingRole, setEditingRole] = useState(null);
+
   const fetchData = async () => {
     try {
       const [svcsRes, reqsRes, usersRes] = await Promise.all([
@@ -49,8 +55,30 @@ export default function AdminPanel({ user }) {
       credentials: "include",
       body: JSON.stringify({ role: newRole }),
     });
+    if (res.ok) {
+      setEditingRole(null);
+      fetchData();
+    }
+  };
+
+  const handleDeleteUser = async (userId, email) => {
+    if (!confirm(`Delete account ${email}? This cannot be undone.`)) return;
+    const res = await fetch(api.userDelete(userId), {
+      method: "DELETE",
+      credentials: "include",
+    });
     if (res.ok) fetchData();
   };
+
+  const filteredUsers = users.filter((u) => {
+    const matchesSearch = !search ||
+      u.email.toLowerCase().includes(search.toLowerCase()) ||
+      (u.display_name || "").toLowerCase().includes(search.toLowerCase());
+    const matchesRole = roleFilter === "all" || u.role === roleFilter;
+    return matchesSearch && matchesRole;
+  });
+
+  const isSelf = (u) => u.id === Number(user.sub);
 
   if (loading) return <div className="page"><p>Loading…</p></div>;
 
@@ -60,40 +88,89 @@ export default function AdminPanel({ user }) {
 
       <section>
         <h3>User Management</h3>
+        <div className="admin-filters">
+          <input
+            type="text"
+            placeholder="Search by email or name…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="admin-search"
+          />
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            className="role-select"
+          >
+            <option value="all">All roles</option>
+            <option value="admin">admin</option>
+            <option value="user">user</option>
+          </select>
+        </div>
         <table className="admin-table">
           <thead>
             <tr>
               <th>Email</th>
               <th>Name</th>
               <th>Role</th>
+              <th>Last Login</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => (
+            {filteredUsers.map((u) => (
               <tr key={u.id}>
                 <td>{u.email}</td>
                 <td>{u.display_name}</td>
                 <td>
-                  <span className={`role-badge role-${u.role}`}>{u.role}</span>
-                </td>
-                <td>
-                  {u.id !== user.sub && u.id !== Number(user.sub) && (
+                  {editingRole === u.id ? (
                     <select
                       value={u.role}
                       onChange={(e) => changeRole(u.id, e.target.value)}
+                      onBlur={() => setEditingRole(null)}
+                      autoFocus
                       className="role-select"
                     >
                       <option value="user">user</option>
                       <option value="admin">admin</option>
                     </select>
+                  ) : (
+                    <>
+                      <span className={`role-badge role-${u.role}`}>{u.role}</span>
+                      {!isSelf(u) && (
+                        <button
+                          className="edit-btn"
+                          onClick={() => setEditingRole(u.id)}
+                          title="Edit role"
+                        >
+                          ✏️
+                        </button>
+                      )}
+                    </>
                   )}
-                  {(u.id === user.sub || u.id === Number(user.sub)) && (
+                </td>
+                <td className="date-cell">
+                  {u.last_login_at
+                    ? new Date(u.last_login_at).toLocaleString()
+                    : "Never"}
+                </td>
+                <td>
+                  {isSelf(u) ? (
                     <span style={{ color: "#999", fontSize: "0.8rem" }}>You</span>
+                  ) : (
+                    <button
+                      className="btn-deny"
+                      onClick={() => handleDeleteUser(u.id, u.email)}
+                      title="Delete account"
+                    >
+                      Delete
+                    </button>
                   )}
                 </td>
               </tr>
             ))}
+            {filteredUsers.length === 0 && (
+              <tr><td colSpan={5} style={{ color: "#999", textAlign: "center" }}>No users found.</td></tr>
+            )}
           </tbody>
         </table>
       </section>

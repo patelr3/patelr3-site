@@ -12,7 +12,7 @@ import {
   listServices, getServiceBySlug, updateService,
   getUserAccess, grantAccess,
   createAccessRequest, listAccessRequests, updateAccessRequest, getUserPendingRequests,
-  findUserById, listUsers, updateUserRole, updateUserPassword,
+  findUserById, listUsers, updateUserRole, updateUserPassword, touchLastLogin, deleteUser,
   createResetToken, findResetToken, deleteResetToken,
 } from "./db.js";
 
@@ -28,7 +28,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   }
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
@@ -102,6 +102,7 @@ app.get(
   passport.authenticate("google", { failureRedirect: config.frontendUrl }),
   (req, res) => {
     issueJwtCookie(res, req.user);
+    touchLastLogin(req.user.id).catch(() => {});
     res.redirect(config.frontendUrl);
   }
 );
@@ -126,6 +127,7 @@ app.post("/auth/register", async (req, res) => {
     const hash = await bcrypt.hash(password, 12);
     const user = await createLocalUser(email, hash, displayName || email.split("@")[0]);
     issueJwtCookie(res, user);
+    touchLastLogin(user.id).catch(() => {});
     res.status(201).json({ authenticated: true, email: user.email, name: user.display_name, role: user.role });
   } catch (err) {
     res.status(500).json({ error: "Registration failed" });
@@ -149,6 +151,7 @@ app.post("/auth/login", async (req, res) => {
   }
 
   issueJwtCookie(res, user);
+  touchLastLogin(user.id).catch(() => {});
   res.json({ authenticated: true, email: user.email, name: user.display_name, role: user.role });
 });
 
@@ -406,6 +409,20 @@ app.patch("/auth/users/:id/role", requireAuth, requireAdmin, async (req, res) =>
     res.json(updated);
   } catch {
     res.status(500).json({ error: "Failed to update role" });
+  }
+});
+
+app.delete("/auth/users/:id", requireAuth, requireAdmin, async (req, res) => {
+  const targetId = Number(req.params.id);
+  if (targetId === Number(req.jwtUser.sub)) {
+    return res.status(400).json({ error: "Cannot delete your own account" });
+  }
+  try {
+    const deleted = await deleteUser(targetId);
+    if (!deleted) return res.status(404).json({ error: "User not found" });
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: "Failed to delete user" });
   }
 });
 

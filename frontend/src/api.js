@@ -33,6 +33,7 @@ const api = {
   // Admin: users
   users: () => `${AUTH_API}${authPrefix}/users`,
   userRole: (id) => `${AUTH_API}${authPrefix}/users/${id}/role`,
+  userDelete: (id) => `${AUTH_API}${authPrefix}/users/${id}`,
 
   // Service endpoints (called directly by service pages)
   hello: () => `${HELLO_API}${helloPrefix}/`,

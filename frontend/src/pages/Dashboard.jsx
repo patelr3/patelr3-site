@@ -35,7 +35,7 @@ export default function Dashboard({ user }) {
     <div className="page dashboard">
       <h2>Dashboard</h2>
       <p style={{ marginBottom: "1rem", color: "#555" }}>
-        Signed in as <strong>{user?.email}</strong> (role: {user?.role})
+        Signed in as <strong>{user?.email}</strong>
       </p>
 
       {services.length === 0 && <p>No services available.</p>}

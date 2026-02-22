@@ -1,4 +1,5 @@
 import pg from "pg";
+import bcrypt from "bcryptjs";
 import config from "./config.js";
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
@@ -15,9 +16,18 @@ export async function initDb() {
       display_name    VARCHAR(255),
       avatar_url      TEXT,
       role            VARCHAR(50) DEFAULT 'user',
+      last_login_at   TIMESTAMPTZ,
       created_at      TIMESTAMPTZ DEFAULT NOW(),
       updated_at      TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+
+  // Add last_login_at if missing (existing DBs)
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+    EXCEPTION WHEN others THEN NULL;
+    END $$
   `);
 
   await pool.query(`
@@ -79,6 +89,20 @@ export async function initDb() {
       created_at  TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+
+  // Seed a test user in local dev only (no AUTH_API_URL set)
+  if (!config.authApiUrl) {
+    const existing = await pool.query("SELECT id FROM users WHERE email = 'test@local.dev'");
+    if (existing.rows.length === 0) {
+      const hash = await bcrypt.hash("TestPass123", 12);
+      await pool.query(
+        `INSERT INTO users (email, password_hash, display_name, role)
+         VALUES ('test@local.dev', $1, 'Test User', 'user')
+         ON CONFLICT (email) DO NOTHING`,
+        [hash]
+      );
+    }
+  }
 }
 
 export async function upsertGoogleUser(profile) {
@@ -234,7 +258,7 @@ export async function findUserById(id) {
 
 export async function listUsers() {
   const { rows } = await pool.query(
-    "SELECT id, email, display_name, role, created_at FROM users ORDER BY id"
+    "SELECT id, email, display_name, role, last_login_at, created_at FROM users ORDER BY id"
   );
   return rows;
 }
@@ -252,6 +276,18 @@ export async function updateUserPassword(userId, passwordHash) {
     `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
     [passwordHash, userId]
   );
+}
+
+export async function touchLastLogin(userId) {
+  await pool.query(
+    `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
+    [userId]
+  );
+}
+
+export async function deleteUser(userId) {
+  const { rowCount } = await pool.query("DELETE FROM users WHERE id = $1", [userId]);
+  return rowCount > 0;
 }
 
 // ── Password reset token queries ───────────────────────────────
