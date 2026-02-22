@@ -58,11 +58,13 @@ jobs:
       - name: Create .env file
         run: |
           cat > .env <<'EOF'
+          POSTGRES_USER=patelr3
+          POSTGRES_PASSWORD=ci-test-password
+          POSTGRES_DB=patelr3_site
           JWT_SECRET=ci-test-secret
           GOOGLE_CLIENT_ID=fake-client-id
           GOOGLE_CLIENT_SECRET=fake-client-secret
-          POSTGRES_PASSWORD=ci-test-password
-          DATABASE_URL=postgres://patelr3:ci-test-password@postgres:5432/patelr3_site
+          DATABASE_URL=postgresql://patelr3:ci-test-password@postgres:5432/patelr3_site
           FRONTEND_URL=http://localhost
           EOF
 
