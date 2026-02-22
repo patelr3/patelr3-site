@@ -16,6 +16,7 @@ param maxReplicas int = 1
 param cpu string = '0.25'
 param memory string = '0.5Gi'
 param customDomains array = []
+param enableSystemIdentity bool = false
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: acrName
@@ -25,6 +26,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
   name: name
   location: location
   tags: tags
+  identity: enableSystemIdentity ? { type: 'SystemAssigned' } : { type: 'None' }
   properties: {
     managedEnvironmentId: envId
     configuration: {

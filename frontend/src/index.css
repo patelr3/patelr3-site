@@ -345,3 +345,32 @@ nav a { text-decoration: none; }
   font-size: 0.85rem;
 }
 .signin-toggle button:hover { text-decoration: underline; }
+
+/* ── Deployment Panel ───────────────────────────────────────── */
+.deployment-panel { margin-top: 1rem; }
+.deployment-status { margin-bottom: 0.75rem; font-size: 1.05rem; }
+.deploy-badge {
+  padding: 0.2em 0.6em;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.deploy-not_created { background: #6c757d; color: #fff; }
+.deploy-provisioning { background: #ffc107; color: #333; }
+.deploy-running { background: #28a745; color: #fff; }
+.deploy-error { background: #dc3545; color: #fff; }
+.deploy-not_configured { background: #6c757d; color: #fff; }
+.deploy-error { color: #dc3545; margin: 0.5rem 0; }
+.deployment-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
+.deployment-actions button { padding: 0.5rem 1rem; cursor: pointer; border-radius: 4px; border: 1px solid #ccc; }
+.danger-btn { background: #dc3545 !important; color: #fff !important; border-color: #dc3545 !important; }
+.danger-btn:hover { background: #c82333 !important; }
+.open-link {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  background: #0d6efd;
+  color: #fff;
+  border-radius: 4px;
+  text-decoration: none;
+}
+.open-link:hover { background: #0b5ed7; }

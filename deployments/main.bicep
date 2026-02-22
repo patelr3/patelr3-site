@@ -25,9 +25,14 @@ param googleClientSecret string
 param jwtSecret string
 @secure()
 param postgresPassword string
+@secure()
+param financeApiKey string
 
 param postgresUser string = 'patelr3'
 param postgresDb string = 'patelr3_site'
+
+@description('Finance CAE domain (from finance-infra deployment)')
+param financeCaeDomain string = 'icytree-0e39e2f3.westus2.azurecontainerapps.io'
 
 // ── Variables ──────────────────────────────────────────────────
 var tags = {
@@ -103,12 +108,15 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'DATABASE_URL', secretRef: 'database-url' }
       { name: 'FRONTEND_URL', value: frontendUrl }
       { name: 'AUTH_API_URL', value: 'https://${projectName}-auth-api.${cae.outputs.defaultDomain}' }
+      { name: 'FINANCE_API_URL', value: 'https://finance-api.${financeCaeDomain}' }
+      { name: 'FINANCE_API_KEY', secretRef: 'finance-api-key' }
     ]
     secrets: [
       { name: 'google-client-id', value: googleClientId }
       { name: 'google-client-secret', value: googleClientSecret }
       { name: 'jwt-secret', value: jwtSecret }
       { name: 'database-url', value: 'postgresql://${postgresUser}:${postgresPassword}@${projectName}-postgres:5432/${postgresDb}' }
+      { name: 'finance-api-key', value: financeApiKey }
     ]
   }
 }

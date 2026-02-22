@@ -35,6 +35,9 @@ const api = {
   userRole: (id) => `${AUTH_API}${authPrefix}/users/${id}/role`,
   userDelete: (id) => `${AUTH_API}${authPrefix}/users/${id}`,
 
+  // Deployments
+  deploymentStatus: (slug) => `${AUTH_API}${authPrefix}/deployments/${slug}`,
+
   // Service endpoints (called directly by service pages)
   hello: () => `${HELLO_API}${helloPrefix}/`,
   helloRestricted: () => `${HELLO_API ? HELLO_API.replace("hello-world", "hello-world-restricted") : ""}/api/hello-restricted/`,

@@ -64,14 +64,12 @@ jobs:
           AUTH_API_URL="https://patelr3-auth-api.${ENV_DOMAIN}"
           HELLO_API_URL="https://patelr3-hello-world.${ENV_DOMAIN}"
           HELLO_RESTRICTED_API_URL="https://patelr3-hello-world-restricted.${ENV_DOMAIN}"
-          ACTUALBUDGET_URL="https://patelr3-actualbudget.${ENV_DOMAIN}"
 
           # Frontend needs API URLs baked in at build time
           docker build \
             --build-arg VITE_AUTH_API_URL="${AUTH_API_URL}" \
             --build-arg VITE_HELLO_API_URL="${HELLO_API_URL}" \
             --build-arg VITE_HELLO_RESTRICTED_API_URL="${HELLO_RESTRICTED_API_URL}" \
-            --build-arg VITE_ACTUALBUDGET_URL="${ACTUALBUDGET_URL}" \
             -t "${ACR_SERVER}/frontend:${{ env.IMAGE_TAG }}" \
             -t "${ACR_SERVER}/frontend:latest" \
             ./frontend
@@ -112,7 +110,8 @@ jobs:
               googleClientId="${{ secrets.GOOGLE_CLIENT_ID }}" \
               googleClientSecret="${{ secrets.GOOGLE_CLIENT_SECRET }}" \
               jwtSecret="${{ secrets.JWT_SECRET }}" \
-              postgresPassword="${{ secrets.POSTGRES_PASSWORD }}"
+              postgresPassword="${{ secrets.POSTGRES_PASSWORD }}" \
+              financeApiKey="${{ secrets.FINANCE_API_KEY }}"
 
       - name: Update container app revisions
         run: |

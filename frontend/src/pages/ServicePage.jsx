@@ -2,10 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api";
 
-// Services that are full web apps — open in new tab instead of API call
-const WEB_APP_SERVICES = {
-  actualbudget: () => import.meta.env.VITE_ACTUALBUDGET_URL || "",
-};
+const DEPLOYABLE_SERVICES = ["actualbudget"];
 
 export default function ServicePage({ user }) {
   const { slug } = useParams();
@@ -15,7 +12,12 @@ export default function ServicePage({ user }) {
   const [loading, setLoading] = useState(true);
   const [calling, setCalling] = useState(false);
 
-  const isWebApp = slug in WEB_APP_SERVICES;
+  // Deployment state for deployable services
+  const [deploy, setDeploy] = useState(null);
+  const [deployLoading, setDeployLoading] = useState(false);
+  const [deployAction, setDeployAction] = useState("");
+
+  const isDeployable = DEPLOYABLE_SERVICES.includes(slug);
 
   useEffect(() => {
     fetch(api.services(), { credentials: "include" })
@@ -31,6 +33,38 @@ export default function ServicePage({ user }) {
       .catch(() => navigate("/dashboard"))
       .finally(() => setLoading(false));
   }, [slug, navigate]);
+
+  // Fetch deployment status for deployable services
+  useEffect(() => {
+    if (!isDeployable || !service) return;
+    fetchDeployStatus();
+  }, [isDeployable, service]);
+
+  const fetchDeployStatus = async () => {
+    try {
+      const res = await fetch(api.deploymentStatus(slug), { credentials: "include" });
+      const data = await res.json();
+      setDeploy(data);
+    } catch {
+      setDeploy({ status: "error", message: "Could not reach deployment service" });
+    }
+  };
+
+  const deploymentAction = async (method) => {
+    setDeployLoading(true);
+    setDeployAction(method === "POST" ? "Creating" : method === "PUT" ? "Updating" : "Deleting");
+    try {
+      await fetch(api.deploymentStatus(slug), { method, credentials: "include" });
+      // Poll status after action
+      await new Promise((r) => setTimeout(r, 2000));
+      await fetchDeployStatus();
+    } catch {
+      setDeploy({ status: "error", message: "Action failed" });
+    } finally {
+      setDeployLoading(false);
+      setDeployAction("");
+    }
+  };
 
   const callService = async () => {
     if (!service) return;
@@ -49,14 +83,6 @@ export default function ServicePage({ user }) {
     }
   };
 
-  const openWebApp = () => {
-    const urlFn = WEB_APP_SERVICES[slug];
-    const url = urlFn ? urlFn() : "";
-    if (url) {
-      window.open(url, "_blank", "noopener");
-    }
-  };
-
   if (loading) return <div className="page"><p>Loading…</p></div>;
   if (!service) return null;
 
@@ -68,10 +94,15 @@ export default function ServicePage({ user }) {
       <div className="service-card" style={{ marginTop: "1rem" }}>
         <h2>{service.name}</h2>
         <p>{service.description}</p>
-        {isWebApp ? (
-          <button onClick={openWebApp}>
-            Open {service.name} ↗
-          </button>
+
+        {isDeployable ? (
+          <DeploymentPanel
+            deploy={deploy}
+            loading={deployLoading}
+            action={deployAction}
+            onAction={deploymentAction}
+            onRefresh={fetchDeployStatus}
+          />
         ) : (
           <>
             <button onClick={callService} disabled={calling}>
@@ -79,6 +110,87 @@ export default function ServicePage({ user }) {
             </button>
             {response && <div className="response">{response}</div>}
           </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DeploymentPanel({ deploy, loading, action, onAction, onRefresh }) {
+  if (!deploy) return <p>Checking deployment status…</p>;
+
+  const { status, fqdn, message } = deploy;
+
+  return (
+    <div className="deployment-panel">
+      <div className="deployment-status">
+        <strong>Status: </strong>
+        <span className={`deploy-badge deploy-${status}`}>
+          {status === "not_created" && "Not Created"}
+          {status === "provisioning" && "Creation in progress…"}
+          {status === "running" && "Running"}
+          {status === "error" && "Error"}
+          {status === "not_configured" && "Not Available"}
+        </span>
+      </div>
+
+      {status === "running" && fqdn && (
+        <div style={{ margin: "1rem 0" }}>
+          <a href={fqdn} target="_blank" rel="noopener noreferrer" className="open-link">
+            Open Actual Budget ↗
+          </a>
+        </div>
+      )}
+
+      {status === "error" && (
+        <p className="deploy-error">
+          {message || "Something went wrong. Contact site admin."}
+        </p>
+      )}
+
+      <div className="deployment-actions">
+        {status === "not_created" && (
+          <button onClick={() => onAction("POST")} disabled={loading}>
+            {loading && action === "Creating" ? "Creating…" : "Create Instance"}
+          </button>
+        )}
+
+        {status === "running" && (
+          <>
+            <button onClick={() => onAction("PUT")} disabled={loading}>
+              {loading && action === "Updating" ? "Updating…" : "Update to Latest"}
+            </button>
+            <button className="danger-btn" onClick={() => {
+              if (confirm("Delete your Actual Budget instance? Your data will be preserved in backups.")) {
+                onAction("DELETE");
+              }
+            }} disabled={loading}>
+              {loading && action === "Deleting" ? "Deleting…" : "Delete Instance"}
+            </button>
+          </>
+        )}
+
+        {status === "provisioning" && (
+          <>
+            <button onClick={onRefresh} disabled={loading}>Refresh Status</button>
+            <button className="danger-btn" onClick={() => {
+              if (confirm("Force delete? This will cancel the in-progress deployment.")) {
+                onAction("DELETE");
+              }
+            }} disabled={loading}>
+              Force Delete
+            </button>
+          </>
+        )}
+
+        {status === "error" && (
+          <button className="danger-btn" onClick={() => {
+            if (confirm("Delete the failed deployment?")) {
+              onAction("DELETE");
+            }
+          }} disabled={loading}>
+            Delete Instance
+          </button>
         )}
       </div>
     </div>

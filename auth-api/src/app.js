@@ -432,4 +432,52 @@ app.delete("/auth/users/:id", requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
+// ── Actual Budget deployment proxy (to finance-api) ────────────
+
+async function financeRequest(method, userId) {
+  if (!config.financeApiUrl) return { status: "not_configured" };
+  const url = `${config.financeApiUrl}/deployments/${userId}`;
+  const res = await fetch(url, {
+    method,
+    headers: { "X-Api-Key": config.financeApiKey },
+  });
+  return res.json();
+}
+
+app.get("/auth/deployments/actualbudget", requireAuth, async (req, res) => {
+  try {
+    const result = await financeRequest("GET", req.jwtUser.sub);
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({ error: "Finance service unavailable" });
+  }
+});
+
+app.post("/auth/deployments/actualbudget", requireAuth, async (req, res) => {
+  try {
+    const result = await financeRequest("POST", req.jwtUser.sub);
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(502).json({ error: "Finance service unavailable" });
+  }
+});
+
+app.put("/auth/deployments/actualbudget", requireAuth, async (req, res) => {
+  try {
+    const result = await financeRequest("PUT", req.jwtUser.sub);
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({ error: "Finance service unavailable" });
+  }
+});
+
+app.delete("/auth/deployments/actualbudget", requireAuth, async (req, res) => {
+  try {
+    const result = await financeRequest("DELETE", req.jwtUser.sub);
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({ error: "Finance service unavailable" });
+  }
+});
+
 export default app;
