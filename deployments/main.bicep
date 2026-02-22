@@ -198,6 +198,7 @@ module frontend 'modules/container-app.bicep' = {
     imageTag: imageTag
     targetPort: 3000
     external: true
+    minReplicas: 1
     env: [
       { name: 'AUTH_API_UPSTREAM', value: 'http://${projectName}-auth-api' }
       { name: 'HELLO_API_UPSTREAM', value: 'http://${projectName}-hello-world' }
