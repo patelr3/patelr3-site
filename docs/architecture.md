@@ -42,16 +42,16 @@ The site also integrates with [actual-server-setup](https://github.com/patelr3/a
 
 ### Production Architecture (Azure Container Apps)
 
-In production, there is **no Nginx**. Each service runs as its own Azure Container App with direct HTTPS ingress. The frontend makes cross-origin API calls (CORS enabled) to the auth-api, which proxies deployment operations to the finance-api in a separate resource group.
+In production, the frontend container runs Nginx, which serves the SPA and reverse-proxies `/api/*` requests to the backend ACAs (same-origin). This keeps auth cookies first-party, avoiding third-party cookie blocks on mobile Safari (ITP) and mobile Edge.
 
 ```
                     Cloudflare (arayosun.com)
                            │
                     ┌──────▼───────┐
                     │  Frontend    │  patelr3-site-rg
-                    │  ACA         │
-                    └──────────────┘
-                           │ CORS
+                    │  ACA (Nginx) │
+                    └──────┬───────┘
+                           │ /api/* (same-origin proxy)
          ┌─────────────────┼─────────────────┐
          ▼                 ▼                 ▼
    ┌──────────┐     ┌──────────┐     ┌──────────────┐
@@ -76,7 +76,7 @@ In production, there is **no Nginx**. Each service runs as its own Azure Contain
 | Container               | Language / Framework | Purpose                                             | Port  |
 | ----------------------- | -------------------- | --------------------------------------------------- | ----- |
 | **nginx**               | Nginx 1.25           | Reverse proxy, auth gate (local dev only)            | 80    |
-| **frontend**            | React 18 (Vite)      | SPA — About Me, Dashboard, Admin, Account, Services  | 3000  |
+| **frontend**            | React 18 (Vite) + Nginx | SPA + API reverse proxy (same-origin in prod)     | 3000  |
 | **auth-api**            | Node.js 20 Express   | Google OAuth 2.0, JWT, RBAC, deployment proxy         | 8000  |
 | **hello-world**         | Node.js 20 Express   | Sample public micro-service                          | 5000  |
 | **hello-world-restricted** | Node.js 20 Express | Sample restricted micro-service                      | 5001  |
@@ -185,6 +185,9 @@ CREATE TABLE access_requests (id SERIAL, user_id INT, service_id INT, status VAR
 | `POSTGRES_PASSWORD`       | Postgres password                                  |
 | `POSTGRES_DB`             | Postgres database name                             |
 | `FRONTEND_URL`            | Public URL of the frontend (for CORS/redirects)    |
+| `AUTH_API_UPSTREAM`       | Internal URL of auth-api (frontend nginx proxy)    |
+| `HELLO_API_UPSTREAM`      | Internal URL of hello-world (frontend nginx proxy) |
+| `HELLO_RESTRICTED_API_UPSTREAM` | Internal URL of hello-world-restricted       |
 | `FINANCE_API_URL`         | Internal URL of finance-api (deployment proxy)     |
 | `FINANCE_API_KEY`         | Shared API key for finance-api authentication      |
 

@@ -17,7 +17,9 @@ services:
     expose:
       - "3000"
     environment:
-      - VITE_API_URL=/api
+      - AUTH_API_UPSTREAM=http://auth-api:8000
+      - HELLO_API_UPSTREAM=http://hello-world:5000
+      - HELLO_RESTRICTED_API_UPSTREAM=http://hello-world-restricted:5001
     restart: unless-stopped
 
   auth-api:

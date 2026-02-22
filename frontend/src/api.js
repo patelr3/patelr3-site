@@ -1,62 +1,39 @@
-// API base URLs — empty in local dev (Nginx proxies /api/*), set in production builds
-const AUTH_API = import.meta.env.VITE_AUTH_API_URL || "";
-const HELLO_API = import.meta.env.VITE_HELLO_API_URL || "";
-
-// In local dev, Nginx proxies /api/auth/* → auth-api /auth/* and /api/hello/* → hello-world /.
-// In production, requests go directly to the service with its native route prefix.
-const authPrefix = AUTH_API ? "/auth" : "/api/auth";
-const helloPrefix = HELLO_API ? "" : "/api/hello";
+// API routes — always go through the same-origin nginx proxy (/api/*)
+// Both local dev and production use nginx to proxy API requests.
 
 const api = {
   // Auth
-  authMe: () => `${AUTH_API}${authPrefix}/me`,
-  authLogin: () => `${AUTH_API}${authPrefix}/login`,
-  authRegister: () => `${AUTH_API}${authPrefix}/register`,
-  authLogout: () => `${AUTH_API}${authPrefix}/logout`,
-  authLoginGoogle: () => `${AUTH_API}${authPrefix}/login/google`,
+  authMe: () => "/api/auth/me",
+  authLogin: () => "/api/auth/login",
+  authRegister: () => "/api/auth/register",
+  authLogout: () => "/api/auth/logout",
+  authLoginGoogle: () => "/api/auth/login/google",
 
   // Services
-  services: () => `${AUTH_API}${authPrefix}/services`,
-  serviceUpdate: (id) => `${AUTH_API}${authPrefix}/services/${id}`,
+  services: () => "/api/auth/services",
+  serviceUpdate: (id) => `/api/auth/services/${id}`,
 
   // Access requests
-  accessRequests: () => `${AUTH_API}${authPrefix}/access-requests`,
-  accessRequestApprove: (id) => `${AUTH_API}${authPrefix}/access-requests/${id}/approve`,
-  accessRequestDeny: (id) => `${AUTH_API}${authPrefix}/access-requests/${id}/deny`,
+  accessRequests: () => "/api/auth/access-requests",
+  accessRequestApprove: (id) => `/api/auth/access-requests/${id}/approve`,
+  accessRequestDeny: (id) => `/api/auth/access-requests/${id}/deny`,
 
   // Account
-  account: () => `${AUTH_API}${authPrefix}/account`,
-  changePassword: () => `${AUTH_API}${authPrefix}/change-password`,
-  forgotPassword: () => `${AUTH_API}${authPrefix}/forgot-password`,
-  resetPassword: () => `${AUTH_API}${authPrefix}/reset-password`,
+  account: () => "/api/auth/account",
+  changePassword: () => "/api/auth/change-password",
+  forgotPassword: () => "/api/auth/forgot-password",
+  resetPassword: () => "/api/auth/reset-password",
 
   // Admin: users
-  users: () => `${AUTH_API}${authPrefix}/users`,
-  userRole: (id) => `${AUTH_API}${authPrefix}/users/${id}/role`,
-  userDelete: (id) => `${AUTH_API}${authPrefix}/users/${id}`,
+  users: () => "/api/auth/users",
+  userRole: (id) => `/api/auth/users/${id}/role`,
+  userDelete: (id) => `/api/auth/users/${id}`,
 
   // Deployments
-  deploymentStatus: (slug) => `${AUTH_API}${authPrefix}/deployments/${slug}`,
+  deploymentStatus: (slug) => `/api/auth/deployments/${slug}`,
 
-  // Service endpoints (called directly by service pages)
-  hello: () => `${HELLO_API}${helloPrefix}/`,
-  helloRestricted: () => `${HELLO_API ? HELLO_API.replace("hello-world", "hello-world-restricted") : ""}/api/hello-restricted/`,
-};
-
-// Build a service endpoint URL from a service's endpoint_url field
-// In local dev, endpoint_url is already the correct path (e.g. /api/hello/)
-// In production, we need to map to the actual service URL
-api.serviceEndpoint = (endpointUrl) => {
-  if (!HELLO_API) return endpointUrl; // local dev — nginx proxies
-  // Map known endpoints to their ACA URLs
-  if (endpointUrl.includes("hello-restricted")) {
-    const HELLO_RESTRICTED_API = import.meta.env.VITE_HELLO_RESTRICTED_API_URL || HELLO_API.replace("hello-world", "hello-world-restricted");
-    return `${HELLO_RESTRICTED_API}/`;
-  }
-  if (endpointUrl.includes("hello")) {
-    return `${HELLO_API}/`;
-  }
-  return endpointUrl;
+  // Service endpoint URLs are already /api/* paths from the database
+  serviceEndpoint: (endpointUrl) => endpointUrl,
 };
 
 export default api;
