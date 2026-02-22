@@ -60,13 +60,28 @@ export default function AboutMe() {
         <h2>Education</h2>
         <ul className="about-list">
           <li>
-            <strong>University of Washington</strong> — B.S., Graduated Cum
-            Laude (2019). Dean's List recipient.
+            <strong>University of Washington</strong> —{" "}
+            <a
+              href="https://www.ece.uw.edu/academics/undergrad/computer-engineering/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              B.S. Computer Engineering
+            </a>{" "}
+            (2019)
           </li>
           <li>
-            <strong>Centralia College</strong> — A.S., Outstanding Student of
-            the Year (2016). President of Phi Theta Kappa honor society (Iota
-            Omega chapter).
+            <strong>University of Washington</strong> —{" "}
+            <a
+              href="https://foster.uw.edu/academics/degree-programs/master-of-science-in-information-systems/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              M.S. Information Systems
+            </a>
+          </li>
+          <li>
+            <strong>Centralia College</strong> — A.S. (2016)
           </li>
         </ul>
       </section>
