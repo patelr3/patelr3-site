@@ -40,11 +40,13 @@ jobs:
           ENV_DOMAIN="gentlebay-ad6f417d.westus2.azurecontainerapps.io"
           AUTH_API_URL="https://patelr3-auth-api.${ENV_DOMAIN}"
           HELLO_API_URL="https://patelr3-hello-world.${ENV_DOMAIN}"
+          HELLO_RESTRICTED_API_URL="https://patelr3-hello-world-restricted.${ENV_DOMAIN}"
 
           # Frontend needs API URLs baked in at build time
           docker build \
             --build-arg VITE_AUTH_API_URL="${AUTH_API_URL}" \
             --build-arg VITE_HELLO_API_URL="${HELLO_API_URL}" \
+            --build-arg VITE_HELLO_RESTRICTED_API_URL="${HELLO_RESTRICTED_API_URL}" \
             -t "${ACR_SERVER}/frontend:${{ env.IMAGE_TAG }}" \
             -t "${ACR_SERVER}/frontend:latest" \
             ./frontend
@@ -52,7 +54,7 @@ jobs:
           docker push "${ACR_SERVER}/frontend:latest"
 
           # Backend services don't need build args
-          for svc in auth-api hello-world; do
+          for svc in auth-api hello-world hello-world-restricted; do
             docker build -t "${ACR_SERVER}/${svc}:${{ env.IMAGE_TAG }}" \
                          -t "${ACR_SERVER}/${svc}:latest" \
                          ./${svc}
@@ -90,7 +92,7 @@ jobs:
       - name: Update container app revisions
         run: |
           ACR_SERVER="${{ env.ACR_NAME }}.azurecr.io"
-          for svc in frontend auth-api hello-world; do
+          for svc in frontend auth-api hello-world hello-world-restricted; do
             az containerapp update \
               --name "patelr3-${svc}" \
               --resource-group ${{ env.RESOURCE_GROUP }} \
@@ -99,7 +101,7 @@ jobs:
 
       - name: Verify deployments
         run: |
-          for svc in frontend auth-api hello-world postgres; do
+          for svc in frontend auth-api hello-world hello-world-restricted postgres; do
             STATUS=$(az containerapp revision list \
               --name "patelr3-${svc}" \
               --resource-group ${{ env.RESOURCE_GROUP }} \

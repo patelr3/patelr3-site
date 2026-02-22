@@ -137,6 +137,30 @@ module helloWorld 'modules/container-app.bicep' = {
   }
 }
 
+// ── Hello-World-Restricted Container App ───────────────────────
+module helloWorldRestricted 'modules/container-app.bicep' = {
+  name: 'hello-world-restricted'
+  params: {
+    name: '${projectName}-hello-world-restricted'
+    location: location
+    tags: tags
+    envId: cae.outputs.id
+    acrLoginServer: acr.outputs.loginServer
+    acrName: acr.outputs.name
+    imageName: 'hello-world-restricted'
+    imageTag: imageTag
+    targetPort: 5001
+    external: true
+    env: [
+      { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
+      { name: 'FRONTEND_URL', value: frontendUrl }
+    ]
+    secrets: [
+      { name: 'jwt-secret', value: jwtSecret }
+    ]
+  }
+}
+
 // ── Existing managed certificates (created by bind-domains.sh) ──
 resource caeRef 'Microsoft.App/managedEnvironments@2024-03-01' existing = {
   name: envName
@@ -189,4 +213,5 @@ output kvUri string = keyVault.outputs.uri
 output frontendFqdn string = frontend.outputs.fqdn
 output authApiFqdn string = authApi.outputs.fqdn
 output helloWorldFqdn string = helloWorld.outputs.fqdn
+output helloWorldRestrictedFqdn string = helloWorldRestricted.outputs.fqdn
 output environmentDomain string = cae.outputs.defaultDomain
