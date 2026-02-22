@@ -11,27 +11,21 @@ jobs:
     runs-on: ubuntu-latest
     if: github.actor == 'dependabot[bot]'
     steps:
-      - name: Approve PR
-        run: gh pr review --approve "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Wait for CI and merge
         run: |
           echo "Waiting for CI checks to complete..."
-          # Wait up to 10 minutes for checks
           for i in $(seq 1 60); do
-            STATUS=$(gh pr checks "$PR_URL" --json state -q '.[].state' 2>/dev/null | sort -u)
-            if echo "$STATUS" | grep -q "FAILURE"; then
+            STATUS=$(gh pr checks "$PR_URL" --json bucket -q '.[].bucket' 2>/dev/null | sort -u)
+            if echo "$STATUS" | grep -q "fail"; then
               echo "CI failed — skipping merge"
               exit 0
             fi
-            if [ -n "$STATUS" ] && ! echo "$STATUS" | grep -q "PENDING"; then
+            if [ -n "$STATUS" ] && ! echo "$STATUS" | grep -qE "pending|queued"; then
               echo "All checks passed — merging"
               gh pr merge --squash "$PR_URL" || true
               exit 0
             fi
+            echo "  Attempt $i: checks still pending..."
             sleep 10
           done
           echo "Timed out waiting for checks"
