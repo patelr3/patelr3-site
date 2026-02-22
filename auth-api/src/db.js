@@ -70,7 +70,8 @@ export async function initDb() {
     INSERT INTO services (slug, name, description, endpoint_url, is_visible, is_restricted)
     VALUES
       ('hello-world', 'Hello World', 'A sample micro-service running in its own container.', '/api/hello/', true, false),
-      ('hello-world-restricted', 'Hello World (Restricted)', 'A restricted micro-service — request access to use it.', '/api/hello-restricted/', true, true)
+      ('hello-world-restricted', 'Hello World (Restricted)', 'A restricted micro-service — request access to use it.', '/api/hello-restricted/', true, true),
+      ('actualbudget', 'Actual Budget', 'Self-hosted personal finance manager.', '/services/actualbudget', false, true)
     ON CONFLICT (slug) DO NOTHING
   `);
 
@@ -79,6 +80,19 @@ export async function initDb() {
     `UPDATE users SET role = 'admin', updated_at = NOW() WHERE email = $1 AND role != 'admin'`,
     [ADMIN_EMAIL]
   );
+
+  // Auto-grant admin access to restricted services
+  const adminUser = await pool.query("SELECT id FROM users WHERE email = $1", [ADMIN_EMAIL]);
+  if (adminUser.rows.length > 0) {
+    const adminId = adminUser.rows[0].id;
+    const restrictedSvcs = await pool.query("SELECT id FROM services WHERE is_restricted = true");
+    for (const svc of restrictedSvcs.rows) {
+      await pool.query(
+        `INSERT INTO user_service_access (user_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [adminId, svc.id]
+      );
+    }
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS password_reset_tokens (

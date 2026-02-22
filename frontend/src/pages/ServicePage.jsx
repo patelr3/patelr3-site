@@ -2,6 +2,11 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api";
 
+// Services that are full web apps — open in new tab instead of API call
+const WEB_APP_SERVICES = {
+  actualbudget: () => import.meta.env.VITE_ACTUALBUDGET_URL || "",
+};
+
 export default function ServicePage({ user }) {
   const { slug } = useParams();
   const navigate = useNavigate();
@@ -9,6 +14,8 @@ export default function ServicePage({ user }) {
   const [response, setResponse] = useState(null);
   const [loading, setLoading] = useState(true);
   const [calling, setCalling] = useState(false);
+
+  const isWebApp = slug in WEB_APP_SERVICES;
 
   useEffect(() => {
     fetch(api.services(), { credentials: "include" })
@@ -42,6 +49,14 @@ export default function ServicePage({ user }) {
     }
   };
 
+  const openWebApp = () => {
+    const urlFn = WEB_APP_SERVICES[slug];
+    const url = urlFn ? urlFn() : "";
+    if (url) {
+      window.open(url, "_blank", "noopener");
+    }
+  };
+
   if (loading) return <div className="page"><p>Loading…</p></div>;
   if (!service) return null;
 
@@ -53,10 +68,18 @@ export default function ServicePage({ user }) {
       <div className="service-card" style={{ marginTop: "1rem" }}>
         <h2>{service.name}</h2>
         <p>{service.description}</p>
-        <button onClick={callService} disabled={calling}>
-          {calling ? "Calling…" : "Call Service"}
-        </button>
-        {response && <div className="response">{response}</div>}
+        {isWebApp ? (
+          <button onClick={openWebApp}>
+            Open {service.name} ↗
+          </button>
+        ) : (
+          <>
+            <button onClick={callService} disabled={calling}>
+              {calling ? "Calling…" : "Call Service"}
+            </button>
+            {response && <div className="response">{response}</div>}
+          </>
+        )}
       </div>
     </div>
   );
