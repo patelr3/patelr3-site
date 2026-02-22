@@ -106,6 +106,7 @@ export default function AdminPanel({ user }) {
             <option value="user">user</option>
           </select>
         </div>
+        <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>
             <tr>
@@ -173,10 +174,12 @@ export default function AdminPanel({ user }) {
             )}
           </tbody>
         </table>
+        </div>
       </section>
 
       <section style={{ marginTop: "2rem" }}>
         <h3>Service Management</h3>
+        <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>
             <tr>
@@ -209,6 +212,7 @@ export default function AdminPanel({ user }) {
             ))}
           </tbody>
         </table>
+        </div>
       </section>
 
       <section style={{ marginTop: "2rem" }}>
@@ -216,6 +220,7 @@ export default function AdminPanel({ user }) {
         {requests.length === 0 ? (
           <p style={{ color: "#777" }}>No pending requests.</p>
         ) : (
+          <div className="admin-table-wrap">
           <table className="admin-table">
             <thead>
               <tr>
@@ -243,6 +248,7 @@ export default function AdminPanel({ user }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
     </div>

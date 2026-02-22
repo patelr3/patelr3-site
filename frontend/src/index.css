@@ -184,6 +184,10 @@ nav a { text-decoration: none; }
   border-radius: 8px;
   overflow: hidden;
 }
+.admin-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .admin-table th, .admin-table td {
   padding: 0.6rem 1rem;
   text-align: left;
