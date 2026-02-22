@@ -96,6 +96,29 @@ nav .tab.active { background: #333; color: #fff; }
 
 .about h1 { margin-bottom: 0.5rem; }
 .about p { max-width: 600px; color: #555; }
+.about a { color: #4285f4; text-decoration: none; font-weight: 500; }
+.about a:hover { text-decoration: underline; }
+.about-section { margin-top: 1.75rem; }
+.about-section h2 {
+  font-size: 1.15rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid #e0e0e0;
+}
+.about-section h3 { font-size: 1rem; margin: 1rem 0 0.35rem; }
+.about-list {
+  padding-left: 1.25rem;
+  color: #444;
+}
+.about-list li { margin-bottom: 0.5rem; line-height: 1.5; }
+.status-badge {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.status-injured { background: #ffeeba; color: #856404; }
 
 .dashboard h2 { margin-bottom: 1rem; }
 .service-card {
