@@ -54,10 +54,11 @@ function issueJwtCookie(res, user) {
   const token = jwt.sign(payload, config.jwtSecret, {
     expiresIn: config.jwtExpiresIn,
   });
+  const isProduction = !!config.authApiUrl;
   res.cookie("access_token", token, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: !!config.authApiUrl,
+    sameSite: isProduction ? "none" : "lax",
+    secure: isProduction,
     maxAge: 24 * 60 * 60 * 1000,
     path: "/",
   });
@@ -71,7 +72,9 @@ passport.use(
     {
       clientID: config.googleClientId,
       clientSecret: config.googleClientSecret,
-      callbackURL: `${config.frontendUrl}/api/auth/callback/google`,
+      callbackURL: config.authApiUrl
+        ? `${config.authApiUrl}/auth/callback/google`
+        : `${config.frontendUrl}/api/auth/callback/google`,
     },
     async (_accessToken, _refreshToken, profile, done) => {
       try {
@@ -186,10 +189,11 @@ app.get("/auth/verify", (req, res) => {
 });
 
 app.get("/auth/logout", (_req, res) => {
+  const isProduction = !!config.authApiUrl;
   res.clearCookie("access_token", {
     path: "/",
-    sameSite: "lax",
-    secure: !!config.authApiUrl,
+    sameSite: isProduction ? "none" : "lax",
+    secure: isProduction,
   });
   res.redirect(config.frontendUrl);
 });

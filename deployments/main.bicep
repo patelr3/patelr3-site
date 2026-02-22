@@ -198,11 +198,7 @@ module frontend 'modules/container-app.bicep' = {
     imageTag: imageTag
     targetPort: 3000
     external: true
-    env: [
-      { name: 'AUTH_API_UPSTREAM', value: 'http://${projectName}-auth-api' }
-      { name: 'HELLO_API_UPSTREAM', value: 'http://${projectName}-hello-world' }
-      { name: 'HELLO_RESTRICTED_API_UPSTREAM', value: 'http://${projectName}-hello-world-restricted' }
-    ]
+    env: []
     secrets: []
     customDomains: [
       {
