@@ -63,9 +63,10 @@ export default function App() {
               element={user ? <Account user={user} /> : <Navigate to="/signin" />}
             />
             <Route path="/reset-password" element={<ResetPassword />} />
-            {user?.role === "admin" && (
-              <Route path="/admin" element={<AdminPanel user={user} />} />
-            )}
+            <Route
+              path="/admin"
+              element={user?.role === "admin" ? <AdminPanel user={user} /> : <Navigate to="/" />}
+            />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </div>

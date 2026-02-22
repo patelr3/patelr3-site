@@ -189,7 +189,12 @@ app.get("/auth/verify", (req, res) => {
 });
 
 app.get("/auth/logout", (_req, res) => {
-  res.clearCookie("access_token", { path: "/" });
+  const isProduction = !!config.authApiUrl;
+  res.clearCookie("access_token", {
+    path: "/",
+    sameSite: isProduction ? "none" : "lax",
+    secure: isProduction,
+  });
   res.redirect(config.frontendUrl);
 });
 
@@ -316,6 +321,7 @@ app.get("/auth/account", requireAuth, async (req, res) => {
       displayName: user.display_name,
       role: user.role,
       hasPassword: !!user.password_hash,
+      isGoogleUser: !!user.google_id,
       createdAt: user.created_at,
     });
   } catch {

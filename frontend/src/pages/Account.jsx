@@ -78,48 +78,50 @@ export default function Account({ user }) {
         </div>
       </div>
 
-      <div className="account-card" style={{ marginTop: "1.5rem" }}>
-        <h3>{account.hasPassword ? "Change Password" : "Set Password"}</h3>
-        <form onSubmit={handleChangePassword} className="pw-form">
-          {account.hasPassword && (
+      {account.isGoogleUser && !account.hasPassword ? null : (
+        <div className="account-card" style={{ marginTop: "1.5rem" }}>
+          <h3>{account.hasPassword ? "Change Password" : "Set Password"}</h3>
+          <form onSubmit={handleChangePassword} className="pw-form">
+            {account.hasPassword && (
+              <label>
+                Current Password
+                <input
+                  type="password"
+                  value={currentPw}
+                  onChange={(e) => setCurrentPw(e.target.value)}
+                  required
+                />
+              </label>
+            )}
             <label>
-              Current Password
+              New Password
               <input
                 type="password"
-                value={currentPw}
-                onChange={(e) => setCurrentPw(e.target.value)}
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
                 required
+                minLength={8}
+                placeholder="Min 8 characters"
               />
             </label>
-          )}
-          <label>
-            New Password
-            <input
-              type="password"
-              value={newPw}
-              onChange={(e) => setNewPw(e.target.value)}
-              required
-              minLength={8}
-              placeholder="Min 8 characters"
-            />
-          </label>
-          <label>
-            Confirm New Password
-            <input
-              type="password"
-              value={confirmPw}
-              onChange={(e) => setConfirmPw(e.target.value)}
-              required
-              minLength={8}
-            />
-          </label>
-          {pwErr && <p className="signin-error">{pwErr}</p>}
-          {pwMsg && <p className="pw-success">{pwMsg}</p>}
-          <button type="submit" className="signin-submit">
-            {account.hasPassword ? "Update Password" : "Set Password"}
-          </button>
-        </form>
-      </div>
+            <label>
+              Confirm New Password
+              <input
+                type="password"
+                value={confirmPw}
+                onChange={(e) => setConfirmPw(e.target.value)}
+                required
+                minLength={8}
+              />
+            </label>
+            {pwErr && <p className="signin-error">{pwErr}</p>}
+            {pwMsg && <p className="pw-success">{pwMsg}</p>}
+            <button type="submit" className="signin-submit">
+              {account.hasPassword ? "Update Password" : "Set Password"}
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
