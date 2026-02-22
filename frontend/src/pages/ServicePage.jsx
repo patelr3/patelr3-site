@@ -4,6 +4,63 @@ import api from "../api";
 
 const DEPLOYABLE_SERVICES = ["actualbudget"];
 
+const SERVICE_DETAILS = {
+  "hello-world": {
+    purpose:
+      "A lightweight REST API that returns a JSON greeting. It exists to demonstrate how a containerized Node.js microservice is built, deployed, and secured behind authentication.",
+    architecture: [
+      "Built with Express on Node.js 20, running in its own Docker container.",
+      "Protected by JWT cookie authentication — only signed-in users can call it.",
+      "Deployed as an Azure Container App with HTTP scaling rules.",
+      "Requests are routed through an Nginx reverse proxy in the frontend container so the call stays same-origin (important for mobile browsers).",
+    ],
+  },
+  "hello-world-restricted": {
+    purpose:
+      "Identical to Hello World, but wrapped in role-based access control (RBAC). Users must request access and receive admin approval before they can call the endpoint.",
+    architecture: [
+      "Same Express / Node.js stack as Hello World, in a separate container.",
+      "An auth-api middleware checks the user's access grants before forwarding the request.",
+      "Access requests are stored in Postgres and surfaced in the Admin Panel for approval or denial.",
+      "Demonstrates a multi-tenant permission model layered on top of a simple service.",
+    ],
+  },
+  actualbudget: {
+    purpose:
+      "Actual Budget is an open-source personal finance tool. This service provisions a private Actual Budget instance for each user, fully isolated in the cloud.",
+    docsUrl: "https://actualbudget.org/docs/",
+    architecture: [
+      "Each user gets a dedicated Azure Container App running the Actual Budget server image.",
+      "Persistent data is stored on an Azure File Share unique to the user, mounted into the container.",
+      "Provisioning, status polling, and teardown are managed by a deployment API in auth-api.",
+      "Instances scale to zero when idle, so they only consume resources while in use.",
+    ],
+    diagram: `
+┌─────────────┐       ┌──────────────────┐       ┌──────────────────────────┐
+│   Browser   │──────▶│  Frontend Nginx  │──────▶│        auth-api          │
+│  (User)     │  HTTPS│  (reverse proxy) │ /api/ │  ┌────────────────────┐  │
+└─────────────┘       └──────────────────┘       │  │  Deployment API    │  │
+                                                 │  │  POST /deploy/:slug│  │
+                                                 │  └────────┬───────────┘  │
+                                                 └───────────┼──────────────┘
+                                                             │ ARM / Bicep
+                                                             ▼
+                                          ┌──────────────────────────────────┐
+                                          │     Azure Container Apps Env     │
+                                          │                                  │
+                                          │  ┌────────────────────────────┐  │
+                                          │  │  User's Actual Budget ACA  │  │
+                                          │  │  (dedicated per user)      │  │
+                                          │  └────────────┬───────────────┘  │
+                                          │               │ mount            │
+                                          │  ┌────────────▼───────────────┐  │
+                                          │  │  Azure File Share          │  │
+                                          │  │  (persistent user data)    │  │
+                                          │  └────────────────────────────┘  │
+                                          └──────────────────────────────────┘`,
+  },
+};
+
 export default function ServicePage({ user }) {
   const { slug } = useParams();
   const navigate = useNavigate();
@@ -117,6 +174,40 @@ export default function ServicePage({ user }) {
           </>
         )}
       </div>
+
+      {SERVICE_DETAILS[slug] && (
+        <div className="service-details">
+          <h3>About This Service</h3>
+          <p>{SERVICE_DETAILS[slug].purpose}</p>
+
+          {SERVICE_DETAILS[slug].docsUrl && (
+            <p>
+              📖{" "}
+              <a
+                href={SERVICE_DETAILS[slug].docsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                View official documentation ↗
+              </a>
+            </p>
+          )}
+
+          <h4>Architecture</h4>
+          <ul>
+            {SERVICE_DETAILS[slug].architecture.map((item, i) => (
+              <li key={i}>{item}</li>
+            ))}
+          </ul>
+
+          {SERVICE_DETAILS[slug].diagram && (
+            <>
+              <h4>Service Architecture</h4>
+              <pre className="arch-diagram">{SERVICE_DETAILS[slug].diagram}</pre>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -420,6 +420,101 @@ nav a { text-decoration: none; }
 }
 .open-link:hover { background: #0b5ed7; }
 
+/* ── Home Page ──────────────────────────────────── */
+.home .hero {
+  text-align: center;
+  padding: 2rem 0 2.5rem;
+}
+.home .hero h1 { margin-bottom: 0.75rem; }
+.home .hero p {
+  max-width: 600px;
+  margin: 0 auto;
+  color: #555;
+  font-size: 1.05rem;
+}
+.hero-cta {
+  display: inline-block;
+  margin-top: 1.5rem;
+  padding: 0.7rem 1.8rem;
+  background: #4285f4;
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.hero-cta:hover { background: #3367d6; }
+
+.services-preview { margin-bottom: 2.5rem; }
+.services-preview h2 { margin-bottom: 1rem; }
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+}
+.preview-card {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 1.25rem;
+}
+.preview-icon { font-size: 1.75rem; }
+.preview-card h3 { margin: 0.5rem 0 0.25rem; font-size: 1rem; }
+.preview-card p { color: #555; font-size: 0.9rem; }
+
+.how-it-works h2 { margin-bottom: 0.75rem; }
+.steps-list {
+  padding-left: 1.25rem;
+  color: #444;
+}
+.steps-list li {
+  margin-bottom: 0.6rem;
+  line-height: 1.5;
+}
+
+/* ── Service Details ──────────────────────────────── */
+.service-details {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+}
+.service-details h3 { margin-bottom: 0.5rem; }
+.service-details p { color: #555; margin-bottom: 1rem; }
+.service-details h4 { margin-bottom: 0.5rem; font-size: 0.95rem; }
+.service-details ul {
+  padding-left: 1.25rem;
+  color: #555;
+}
+.service-details li {
+  margin-bottom: 0.4rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.service-details a {
+  color: #4285f4;
+  text-decoration: none;
+  font-weight: 500;
+}
+.service-details a:hover { text-decoration: underline; }
+.arch-diagram {
+  margin-top: 0.5rem;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  white-space: pre;
+  color: #333;
+}
+
 /* ── Footer ────────────────────────────────────── */
 .site-footer {
   margin-top: 3rem;

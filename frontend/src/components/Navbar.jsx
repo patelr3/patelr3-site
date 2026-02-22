@@ -22,6 +22,9 @@ export default function Navbar({ user, onLogout }) {
 
       <div className={`nav-links ${menuOpen ? "open" : ""}`}>
         <NavLink to="/" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} end onClick={handleNavClick}>
+          Home
+        </NavLink>
+        <NavLink to="/about" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} onClick={handleNavClick}>
           About Me
         </NavLink>
 

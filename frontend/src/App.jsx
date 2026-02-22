@@ -1,6 +1,7 @@
 import { useState, useEffect, createContext } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Navbar from "./components/Navbar";
+import HomePage from "./pages/HomePage";
 import AboutMe from "./pages/AboutMe";
 import Dashboard from "./pages/Dashboard";
 import SignIn from "./pages/SignIn";
@@ -43,7 +44,8 @@ export default function App() {
         <div className="app">
           <Navbar user={user} onLogout={handleLogout} />
           <Routes>
-            <Route path="/" element={<AboutMe />} />
+            <Route path="/" element={<HomePage user={user} />} />
+            <Route path="/about" element={<AboutMe />} />
             <Route
               path="/signin"
               element={
