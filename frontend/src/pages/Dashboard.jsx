@@ -1,4 +1,5 @@
 import { useState } from "react";
+import api from "../api";
 
 export default function Dashboard({ user }) {
   const [helloResponse, setHelloResponse] = useState(null);
@@ -7,7 +8,7 @@ export default function Dashboard({ user }) {
   const callHelloWorld = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/hello/", { credentials: "include" });
+      const res = await fetch(api.hello(), { credentials: "include" });
       const data = await res.json();
       setHelloResponse(JSON.stringify(data, null, 2));
     } catch (err) {

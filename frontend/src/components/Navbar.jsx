@@ -1,3 +1,5 @@
+import api from "../api";
+
 export default function Navbar({ user, tab, setTab, onLogout }) {
   return (
     <nav>

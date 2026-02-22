@@ -4,6 +4,8 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
 COPY . .
+ARG VITE_AUTH_API_URL=""
+ARG VITE_HELLO_API_URL=""
 RUN npm run build
 
 # Serve the built SPA with a lightweight static server

@@ -3,13 +3,14 @@ import Navbar from "./components/Navbar";
 import AboutMe from "./pages/AboutMe";
 import Dashboard from "./pages/Dashboard";
 import SignIn from "./pages/SignIn";
+import api from "./api";
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState("about");
 
   useEffect(() => {
-    fetch("/api/auth/me", { credentials: "include" })
+    fetch(api.authMe(), { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.authenticated) setUser(data);
@@ -18,7 +19,7 @@ export default function App() {
   }, []);
 
   const handleLogout = async () => {
-    await fetch("/api/auth/logout", { credentials: "include" });
+    await fetch(api.authLogout(), { credentials: "include" });
     setUser(null);
     setTab("about");
   };

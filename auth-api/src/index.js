@@ -11,6 +11,21 @@ import { initDb, upsertGoogleUser, findUserByEmail, createLocalUser } from "./db
 const app = express();
 app.use(express.json());
 app.use(cookieParser());
+
+// CORS — allow frontend origin for cross-origin API calls in production
+const allowedOrigins = [config.frontendUrl];
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  }
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 app.use(
   session({
     secret: config.jwtSecret,
@@ -31,9 +46,11 @@ function issueJwtCookie(res, user) {
   const token = jwt.sign(payload, config.jwtSecret, {
     expiresIn: config.jwtExpiresIn,
   });
+  const isProduction = !!config.authApiUrl;
   res.cookie("access_token", token, {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: isProduction ? "none" : "lax",
+    secure: isProduction,
     maxAge: 24 * 60 * 60 * 1000,
     path: "/",
   });
@@ -47,7 +64,9 @@ passport.use(
     {
       clientID: config.googleClientId,
       clientSecret: config.googleClientSecret,
-      callbackURL: `${config.frontendUrl}/api/auth/callback/google`,
+      callbackURL: config.authApiUrl
+        ? `${config.authApiUrl}/auth/callback/google`
+        : `${config.frontendUrl}/api/auth/callback/google`,
     },
     async (_accessToken, _refreshToken, profile, done) => {
       try {

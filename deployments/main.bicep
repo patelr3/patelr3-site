@@ -95,13 +95,14 @@ module authApi 'modules/container-app.bicep' = {
     imageName: 'auth-api'
     imageTag: imageTag
     targetPort: 8000
-    external: false
+    external: true
     env: [
       { name: 'GOOGLE_CLIENT_ID', secretRef: 'google-client-id' }
       { name: 'GOOGLE_CLIENT_SECRET', secretRef: 'google-client-secret' }
       { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
       { name: 'DATABASE_URL', secretRef: 'database-url' }
       { name: 'FRONTEND_URL', value: frontendUrl }
+      { name: 'AUTH_API_URL', value: 'https://${projectName}-auth-api.${cae.outputs.defaultDomain}' }
     ]
     secrets: [
       { name: 'google-client-id', value: googleClientId }
@@ -125,9 +126,14 @@ module helloWorld 'modules/container-app.bicep' = {
     imageName: 'hello-world'
     imageTag: imageTag
     targetPort: 5000
-    external: false
-    env: []
-    secrets: []
+    external: true
+    env: [
+      { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
+      { name: 'FRONTEND_URL', value: frontendUrl }
+    ]
+    secrets: [
+      { name: 'jwt-secret', value: jwtSecret }
+    ]
   }
 }
 
@@ -181,4 +187,6 @@ module frontend 'modules/container-app.bicep' = {
 output acrLoginServer string = acr.outputs.loginServer
 output kvUri string = keyVault.outputs.uri
 output frontendFqdn string = frontend.outputs.fqdn
+output authApiFqdn string = authApi.outputs.fqdn
+output helloWorldFqdn string = helloWorld.outputs.fqdn
 output environmentDomain string = cae.outputs.defaultDomain
