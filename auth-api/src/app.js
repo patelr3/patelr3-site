@@ -434,14 +434,16 @@ app.delete("/auth/users/:id", requireAuth, requireAdmin, async (req, res) => {
 
 // ── Actual Budget deployment proxy (to finance-api) ────────────
 
-async function financeRequest(method, userId) {
+async function financeRequest(method, userId, body) {
   if (!config.financeApiUrl) return { status: "not_configured" };
   const url = `${config.financeApiUrl}/deployments/${userId}`;
   console.log(`[finance-proxy] ${method} ${url}`);
-  const res = await fetch(url, {
+  const opts = {
     method,
-    headers: { "X-Api-Key": config.financeApiKey },
-  });
+    headers: { "X-Api-Key": config.financeApiKey, "Content-Type": "application/json" },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
   const data = await res.json();
   if (!res.ok) {
     console.error(`[finance-proxy] ${method} ${url} → ${res.status}`, data);
@@ -461,7 +463,9 @@ app.get("/auth/deployments/actualbudget", requireAuth, async (req, res) => {
 
 app.post("/auth/deployments/actualbudget", requireAuth, async (req, res) => {
   try {
-    const result = await financeRequest("POST", req.jwtUser.sub);
+    const email = req.jwtUser.email || "";
+    const username = email.split("@")[0] || `user${req.jwtUser.sub}`;
+    const result = await financeRequest("POST", req.jwtUser.sub, { username });
     res.status(201).json(result);
   } catch (err) {
     res.status(502).json({ error: "Finance service unavailable" });

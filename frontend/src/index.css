@@ -374,3 +374,15 @@ nav a { text-decoration: none; }
   text-decoration: none;
 }
 .open-link:hover { background: #0b5ed7; }
+
+/* ── Footer ────────────────────────────────────── */
+.site-footer {
+  margin-top: 3rem;
+  padding: 1.5rem 0;
+  border-top: 1px solid #e0e0e0;
+  text-align: center;
+  color: #888;
+  font-size: 0.85rem;
+}
+.site-footer a { color: #4285f4; text-decoration: none; }
+.site-footer a:hover { text-decoration: underline; }

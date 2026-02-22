@@ -69,6 +69,9 @@ export default function App() {
             />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
+          <footer className="site-footer">
+            <p>Contact: <a href="mailto:arayosunrp@gmail.com">arayosunrp@gmail.com</a></p>
+          </footer>
         </div>
       </BrowserRouter>
     </UserContext.Provider>
