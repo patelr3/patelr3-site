@@ -73,6 +73,7 @@ export default function App() {
           </Routes>
           <footer className="site-footer">
             <p>Contact: <a href="mailto:arayosunrp@gmail.com">arayosunrp@gmail.com</a></p>
+            <p><a href="https://github.com/patelr3/patelr3-site" target="_blank" rel="noopener noreferrer">View source on GitHub ↗</a></p>
           </footer>
         </div>
       </BrowserRouter>

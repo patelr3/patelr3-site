@@ -29,6 +29,7 @@ const SERVICE_DETAILS = {
     purpose:
       "Actual Budget is an open-source personal finance tool. This service provisions a private Actual Budget instance for each user, fully isolated in the cloud.",
     docsUrl: "https://actualbudget.org/docs/",
+    sourceUrl: "https://github.com/patelr3/actual-server-setup",
     architecture: [
       "Each user gets a dedicated Azure Container App running the Actual Budget server image.",
       "Persistent data is stored on an Azure File Share unique to the user, mounted into the container.",
@@ -189,6 +190,19 @@ export default function ServicePage({ user }) {
                 rel="noopener noreferrer"
               >
                 View official documentation ↗
+              </a>
+            </p>
+          )}
+
+          {SERVICE_DETAILS[slug].sourceUrl && (
+            <p>
+              💻{" "}
+              <a
+                href={SERVICE_DETAILS[slug].sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                View source code on GitHub ↗
               </a>
             </p>
           )}

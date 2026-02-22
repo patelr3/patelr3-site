@@ -62,7 +62,7 @@ export default function AboutMe() {
           <li>
             <strong>University of Washington</strong> —{" "}
             <a
-              href="https://www.ece.uw.edu/academics/undergrad/computer-engineering/"
+              href="https://www.ece.uw.edu"
               target="_blank"
               rel="noopener noreferrer"
             >
