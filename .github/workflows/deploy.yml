@@ -46,6 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Log in to Azure
         uses: azure/login@v2
@@ -78,6 +80,13 @@ jobs:
             docker push "${ACR_SERVER}/${svc}:latest"
           done
 
+          # MCP server (from submodule)
+          docker build -t "${ACR_SERVER}/mcp-server:${{ env.IMAGE_TAG }}" \
+                       -t "${ACR_SERVER}/mcp-server:latest" \
+                       ./actual-server-setup/mcp-server
+          docker push "${ACR_SERVER}/mcp-server:${{ env.IMAGE_TAG }}"
+          docker push "${ACR_SERVER}/mcp-server:latest"
+
   deploy:
     name: Deploy to Container Apps
     needs: build-and-push
@@ -109,7 +118,7 @@ jobs:
       - name: Update container app revisions
         run: |
           ACR_SERVER="${{ env.ACR_NAME }}.azurecr.io"
-          for svc in frontend auth-api hello-world hello-world-restricted; do
+          for svc in frontend auth-api hello-world hello-world-restricted mcp-server; do
             az containerapp update \
               --name "patelr3-${svc}" \
               --resource-group ${{ env.RESOURCE_GROUP }} \
@@ -118,7 +127,7 @@ jobs:
 
       - name: Verify deployments
         run: |
-          for svc in frontend auth-api hello-world hello-world-restricted postgres; do
+          for svc in frontend auth-api hello-world hello-world-restricted mcp-server postgres; do
             STATUS=$(az containerapp revision list \
               --name "patelr3-${svc}" \
               --resource-group ${{ env.RESOURCE_GROUP }} \

@@ -26,6 +26,7 @@ When making code changes to any service (frontend, auth-api, hello-world, nginx,
    - Hello-world (unauthenticated): `curl -s -o /dev/null -w '%{http_code}' http://localhost/api/hello/` → 401
    - Full login flow: register → login → access protected endpoints with cookie
 5. **Run unit tests** — `npm test --prefix auth-api && npm test --prefix hello-world && npm test --prefix hello-world-restricted`
+   - MCP server tests: `npm test --prefix actual-server-setup/mcp-server`
 6. **Fix any issues** — If local tests fail, debug and fix before proceeding.
 7. **Only then push** — Once the local deployment is confirmed working, commit and push to `main`.
 8. **Leave the stack running** — Do not tear down after pushing.
@@ -36,9 +37,10 @@ When making code changes to any service (frontend, auth-api, hello-world, nginx,
 
 - **Local dev** uses Nginx as a reverse proxy (all services on `localhost:80`). The frontend container also runs its own nginx with API proxy.
 - **Production (ACA)** has no separate Nginx — the frontend container's nginx serves the SPA and reverse-proxies `/api/*` requests to backend ACAs (same-origin, no CORS needed).
-- `docker-compose.yml` orchestrates 6 services: nginx, frontend, auth-api, hello-world, hello-world-restricted, postgres.
+- `docker-compose.yml` orchestrates 7 services: nginx, frontend, auth-api, mcp-server, hello-world, hello-world-restricted, postgres.
 - Environment variables come from `.env` (see `.env.example` for the template).
 - auth-api proxies deployment requests to the finance-api in patelr3/actual-server-setup.
+- auth-api also acts as an OIDC Identity Provider for ActualBudget instances (wraps Google OAuth).
 
 ## Service Visibility
 
@@ -55,9 +57,10 @@ Services are stored in the `services` Postgres table. Admin changes to `is_visib
 | View logs | `docker compose logs -f <service>` |
 | Rebuild one service | `docker compose build <service> && docker compose up -d <service>` |
 | Unit tests | `npm test --prefix auth-api` |
+| MCP server tests | `npm test --prefix actual-server-setup/mcp-server` |
 | Integration tests | `bash tests/integration.sh` |
 | Copilot CLI | `copilot` (authenticate with `/login` on first use) |
 
 ## Related Repos
 
-- **[actual-server-setup](https://github.com/patelr3/actual-server-setup)** — Finance infrastructure: finance-api, per-user Actual Budget ACAs, backup workflows.
+- **[actual-server-setup](https://github.com/patelr3/actual-server-setup)** — Finance infrastructure: finance-api, per-user Actual Budget ACAs, MCP server, backup workflows.

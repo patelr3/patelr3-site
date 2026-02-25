@@ -54,6 +54,8 @@ jobs:
     needs: [unit-tests, frontend-build]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Create .env file
         run: |

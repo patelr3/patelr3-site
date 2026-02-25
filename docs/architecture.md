@@ -16,22 +16,22 @@ The site also integrates with [actual-server-setup](https://github.com/patelr3/a
                         │  (Gateway)   │
                         └──────┬───────┘
                                │
-                  ┌────────────┼─────────────┐
-                  │            │             │
-                  ▼            ▼             ▼
-            ┌──────────┐ ┌──────────┐ ┌──────────────────┐
-            │ Frontend │ │ Auth API │ │ Hello-World      │
-            │ (React)  │ │(Express) │ │ Services         │
-            │ :3000    │ │ :8000    │ │ :5000 / :5001    │
-            └──────────┘ └────┬─────┘ └──────────────────┘
-                              │
-                 ┌────────────┼────────────┐
-                 │                         │
-            ┌────▼─────┐         ┌─────────▼──────────┐
-            │ Postgres │         │   Finance API      │
-            │  :5432   │         │ (actual-server-setup│
-            └──────────┘         │  repo, Azure ACA)  │
-                                 └─────────┬──────────┘
+                  ┌────────────┼─────────────┬──────────┐
+                  │            │             │          │
+                  ▼            ▼             ▼          ▼
+            ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
+            │ Frontend │ │ Auth API │ │ Hello    │ │ MCP      │
+            │ (React)  │ │(Express) │ │ Services │ │ Server   │
+            │ :3000    │ │ :8000    │ │:5000/5001│ │ :8090    │
+            └──────────┘ └────┬─────┘ └──────────┘ └────┬─────┘
+                              │                         │
+                 ┌────────────┼────────────┐            │
+                 │                         │            │
+            ┌────▼─────┐         ┌─────────▼────────┐   │
+            │ Postgres │         │   Finance API    │◀──┘
+            │  :5432   │         │ (actual-server-  │
+            └──────────┘         │  setup repo)     │
+                                 └─────────┬────────┘
                                            │
                                  ┌─────────▼──────────┐
                                  │ Per-User Actual    │
@@ -52,21 +52,26 @@ In production, the frontend container runs Nginx, which serves the SPA and rever
                     │  ACA (Nginx) │
                     └──────┬───────┘
                            │ /api/* (same-origin proxy)
-         ┌─────────────────┼─────────────────┐
-         ▼                 ▼                 ▼
-   ┌──────────┐     ┌──────────┐     ┌──────────────┐
-   │ Auth API │     │ Hello    │     │ Hello        │
-   │ ACA      │     │ World    │     │ Restricted   │
-   └────┬─────┘     └──────────┘     └──────────────┘
-        │
-        │ X-Api-Key                  patelr3-finance-rg
-        ▼
+         ┌─────────────────┼─────────────────┬──────────┐
+         ▼                 ▼                 ▼          ▼
+   ┌──────────┐     ┌──────────┐     ┌──────────┐ ┌──────────┐
+   │ Auth API │     │ Hello    │     │ Hello    │ │ MCP      │
+   │ ACA      │     │ World    │     │Restricted│ │ Server   │
+   └────┬─────┘     └──────────┘     └──────────┘ └────┬─────┘
+        │                                              │
+        │ X-Api-Key                  patelr3-finance-rg │
+        ▼                                              ▼
    ┌──────────┐     ┌──────────────────────────────┐
    │ Finance  │────▶│ Per-User ACAs               │
-   │ API ACA  │     │ ab-{username}-{hash}         │
+   │ API ACA  │◀────│ ab-{username}-{hash}         │
    └──────────┘     │ + Azure File Shares          │
                     │ + Blob Storage (backups)      │
                     └──────────────────────────────┘
+
+   ┌──────────────────────────────────────────────┐
+   │ Azure AI Foundry Agent Service               │
+   │ (MCP Client → calls MCP server tools)        │
+   └──────────────────────────────────────────────┘
 ```
 
 ---
@@ -77,10 +82,13 @@ In production, the frontend container runs Nginx, which serves the SPA and rever
 | ----------------------- | -------------------- | --------------------------------------------------- | ----- |
 | **nginx**               | Nginx 1.25           | Reverse proxy, auth gate (local dev only)            | 80    |
 | **frontend**            | React 18 (Vite) + Nginx | SPA + API reverse proxy (same-origin in prod)     | 3000  |
-| **auth-api**            | Node.js 20 Express   | Google OAuth 2.0, JWT, RBAC, deployment proxy         | 8000  |
+| **auth-api**            | Node.js 20 Express   | Google OAuth 2.0, JWT, RBAC, OIDC IdP, deploy proxy  | 8000  |
+| **mcp-server**          | Node.js 20 MCP SDK   | ActualBudget MCP server (Azure AI Foundry)           | 8090  |
 | **hello-world**         | Node.js 20 Express   | Sample public micro-service                          | 5000  |
 | **hello-world-restricted** | Node.js 20 Express | Sample restricted micro-service                      | 5001  |
 | **postgres**            | PostgreSQL 16        | Users, roles, services, access requests               | 5432  |
+
+> The MCP server code lives in [actual-server-setup/mcp-server](https://github.com/patelr3/actual-server-setup/tree/main/mcp-server) and is included in the local Docker Compose stack.
 
 ---
 
@@ -115,6 +123,83 @@ Services are stored in a `services` table with `is_visible` and `is_restricted` 
 - **Visible** services appear on the Dashboard for all authenticated users.
 - **Restricted** services require explicit access grants (approved by admin).
 - **Hidden** services (`is_visible = false`) don't appear on the Dashboard.
+
+---
+
+## OIDC Identity Provider
+
+Auth-api acts as an **OpenID Connect Identity Provider** wrapping Google OAuth. This enables all ActualBudget instances to use a single Google OAuth redirect URI through auth-api.
+
+### Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/auth/oidc/.well-known/openid-configuration` | GET | OIDC discovery document |
+| `/api/auth/oidc/authorize` | GET | Redirects to Google OAuth |
+| `/api/auth/oidc/callback` | GET | Google redirects here → issues auth code → redirects to AB |
+| `/api/auth/oidc/token` | POST | Exchange auth code for ID + access tokens |
+| `/api/auth/oidc/userinfo` | GET | Return user profile |
+| `/api/auth/oidc/jwks` | GET | JSON Web Key Set for token verification |
+
+### Flow
+
+```
+ActualBudget Instance                 auth-api (OIDC IdP)                  Google
+       │                                     │                               │
+       │──── authorize?redirect_uri=AB ──────▶│                               │
+       │                                     │── redirect to Google OAuth ───▶│
+       │                                     │                               │
+       │                                     │◀── callback with Google code ──│
+       │                                     │── exchange code for userinfo ─▶│
+       │                                     │                               │
+       │◀── redirect with OIDC auth code ────│                               │
+       │                                     │                               │
+       │──── POST /token (code) ────────────▶│                               │
+       │◀── { id_token, access_token } ──────│                               │
+       │                                     │                               │
+       │──── GET /userinfo ─────────────────▶│                               │
+       │◀── { sub, email, name } ────────────│                               │
+```
+
+### Key Details
+- RSA key pair generated at startup (in-memory) for signing ID tokens (RS256)
+- Authorization codes stored in Postgres (`oidc_auth_codes` table) with 5-minute TTL
+- Access tokens stored in-memory with 1-hour TTL
+- Supports PKCE (S256 and plain)
+- Google redirect URI: `{FRONTEND_URL}/api/auth/oidc/callback` (single URI for all AB instances)
+
+---
+
+## ActualBudget MCP Server
+
+The [MCP server](https://github.com/patelr3/actual-server-setup/tree/main/mcp-server) provides 21 tools for AI agents to manage budgets via the Model Context Protocol. It integrates with Azure AI Foundry Agent Service.
+
+### Authentication Flow
+
+```
+Azure AI Foundry ──(Authorization: Bearer <user-jwt>)──▶ MCP Server
+  │                                                         │
+  │                                          validates JWT──│──▶ auth-api
+  │                                                         │
+  │                                     gets instance URL +─│──▶ finance-api
+  │                                        service token    │
+  │                                                         │
+  │                                    @actual-app/api      │
+  │                                    init({serverURL,     │
+  │                                     sessionToken})──────│──▶ AB Instance
+  │                                                         │
+  │◀──────────── tool result ───────────────────────────────│
+```
+
+### Service Token Mechanism
+
+ActualBudget instances use `ACTUAL_LOGIN_METHOD=openid` for web users. The MCP server uses a **service session token** for API access:
+
+1. `entrypoint.sh` injects a never-expiring token into AB's SQLite `sessions` table after boot
+2. Token is persisted to Azure File Share at `/persistent/.service-token`
+3. Finance-api reads the token via `GET /deployments/:userId/token`
+4. MCP server calls `api.init({ serverURL, sessionToken })` — natively supported by `@actual-app/api`
+5. Session validation is **method-agnostic** (only checks token existence + expiry, not auth_method)
 
 ---
 
@@ -170,6 +255,19 @@ CREATE TABLE services (
 -- Access grants & requests
 CREATE TABLE access_grants (user_id INT, service_id INT, PRIMARY KEY(user_id, service_id));
 CREATE TABLE access_requests (id SERIAL, user_id INT, service_id INT, status VARCHAR(20));
+
+-- OIDC authorization codes (short-lived, for ActualBudget OpenID flow)
+CREATE TABLE oidc_auth_codes (
+    code            VARCHAR(255) PRIMARY KEY,
+    user_id         INT NOT NULL,
+    redirect_uri    TEXT NOT NULL,
+    client_id       VARCHAR(255) NOT NULL,
+    code_challenge  VARCHAR(255),
+    code_challenge_method VARCHAR(10),
+    google_claims   JSONB,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    expires_at      TIMESTAMPTZ DEFAULT NOW() + INTERVAL '5 minutes'
+);
 ```
 
 ---
@@ -190,6 +288,8 @@ CREATE TABLE access_requests (id SERIAL, user_id INT, service_id INT, status VAR
 | `HELLO_RESTRICTED_API_UPSTREAM` | Internal URL of hello-world-restricted       |
 | `FINANCE_API_URL`         | Internal URL of finance-api (deployment proxy)     |
 | `FINANCE_API_KEY`         | Shared API key for finance-api authentication      |
+| `OIDC_CLIENT_ID`          | Client ID for OIDC provider (ActualBudget uses)    |
+| `OIDC_CLIENT_SECRET`      | Client secret for OIDC provider                    |
 
 ---
 

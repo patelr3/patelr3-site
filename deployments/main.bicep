@@ -169,6 +169,32 @@ module helloWorldRestricted 'modules/container-app.bicep' = {
   }
 }
 
+// ── MCP Server Container App ───────────────────────────────────
+module mcpServer 'modules/container-app.bicep' = {
+  name: 'mcp-server'
+  params: {
+    name: '${projectName}-mcp-server'
+    location: location
+    tags: tags
+    envId: cae.outputs.id
+    acrLoginServer: acr.outputs.loginServer
+    acrName: acr.outputs.name
+    imageName: 'mcp-server'
+    imageTag: imageTag
+    targetPort: 8090
+    external: true
+    env: [
+      { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
+      { name: 'FINANCE_API_URL', value: 'https://finance-api.${financeCaeDomain}' }
+      { name: 'FINANCE_API_KEY', secretRef: 'finance-api-key' }
+    ]
+    secrets: [
+      { name: 'jwt-secret', value: jwtSecret }
+      { name: 'finance-api-key', value: financeApiKey }
+    ]
+  }
+}
+
 // ── Existing managed certificates (created by bind-domains.sh) ──
 resource caeRef 'Microsoft.App/managedEnvironments@2024-03-01' existing = {
   name: envName
@@ -227,4 +253,5 @@ output frontendFqdn string = frontend.outputs.fqdn
 output authApiFqdn string = authApi.outputs.fqdn
 output helloWorldFqdn string = helloWorld.outputs.fqdn
 output helloWorldRestrictedFqdn string = helloWorldRestricted.outputs.fqdn
+output mcpServerFqdn string = mcpServer.outputs.fqdn
 output environmentDomain string = cae.outputs.defaultDomain
