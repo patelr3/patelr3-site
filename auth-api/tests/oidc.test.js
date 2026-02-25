@@ -26,9 +26,19 @@ const mockDb = {
   deleteResetToken: jest.fn(),
   storeOidcAuthCode: jest.fn(),
   consumeOidcAuthCode: jest.fn(),
+  getOrCreateThread: jest.fn(),
+  getUserThreads: jest.fn(),
+  deleteThread: jest.fn(),
 };
 
 jest.unstable_mockModule("../src/db.js", () => mockDb);
+
+// Mock @azure/identity to avoid real Azure calls in tests
+jest.unstable_mockModule("@azure/identity", () => ({
+  DefaultAzureCredential: jest.fn().mockImplementation(() => ({
+    getToken: jest.fn().mockResolvedValue({ token: "mock-azure-token" }),
+  })),
+}));
 
 const { default: app } = await import("../src/app.js");
 import request from "supertest";

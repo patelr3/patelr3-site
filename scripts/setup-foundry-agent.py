@@ -1,18 +1,30 @@
 #!/usr/bin/env python3
 """
-Register the ActualBudget MCP server with Azure AI Foundry Agent Service.
+Register/update the ActualBudget MCP agent in Azure AI Foundry.
+
+Idempotent: creates the agent if it doesn't exist, updates it otherwise.
+Supports adding models and MCP servers via command-line args.
 
 Prerequisites:
-  1. Azure AI Foundry project (hub + project) with a model deployed (e.g. gpt-4o)
-  2. MCP server deployed to ACA with public HTTPS endpoint
-  3. pip install azure-ai-projects azure-identity
+  pip install azure-ai-projects azure-ai-agents azure-identity
 
 Usage:
-  export PROJECT_ENDPOINT="https://<region>.api.azureml.ms/..."
-  export MCP_SERVER_URL="https://patelr3-mcp-server.<cae-domain>"
+  # First deploy: creates agent
   python scripts/setup-foundry-agent.py
+
+  # Update model or tools later — same command, idempotent
+  python scripts/setup-foundry-agent.py --model gpt-4o-mini
+
+  # Custom MCP server URL
+  python scripts/setup-foundry-agent.py --mcp-url https://my-mcp.example.com
+
+Environment variables:
+  PROJECT_ENDPOINT  — Azure AI Foundry project endpoint
+  MCP_SERVER_URL    — Public URL of the MCP server (default, overridden by --mcp-url)
 """
 
+import argparse
+import json
 import os
 import sys
 
@@ -20,18 +32,8 @@ from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import McpTool
 from azure.identity import DefaultAzureCredential
 
-PROJECT_ENDPOINT = os.environ.get("PROJECT_ENDPOINT")
-MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL")
-
-if not PROJECT_ENDPOINT or not MCP_SERVER_URL:
-    print("Required environment variables:")
-    print("  PROJECT_ENDPOINT  — Azure AI Foundry project endpoint")
-    print("  MCP_SERVER_URL    — Public URL of the deployed MCP server")
-    print()
-    print("Example:")
-    print('  export PROJECT_ENDPOINT="https://eastus2.api.azureml.ms/..."')
-    print('  export MCP_SERVER_URL="https://patelr3-mcp-server.icytree-0e39e2f3.westus2.azurecontainerapps.io"')
-    sys.exit(1)
+AGENT_NAME = "sunnieai-assistant"
+STATE_FILE = os.path.join(os.path.dirname(__file__), ".foundry-agent-state.json")
 
 MCP_TOOLS = [
     "list_budgets", "load_budget", "get_budget_summary",
@@ -44,57 +46,127 @@ MCP_TOOLS = [
     "get_rules", "create_rule",
 ]
 
+INSTRUCTIONS = (
+    "You are SunnieAI, a personal finance assistant. "
+    "You have access to the user's Actual Budget data through MCP tools. "
+    "Use the available tools to help manage budgets, accounts, transactions, "
+    "categories, and more. Always start by listing budgets and loading one "
+    "before performing other operations. Be precise with monetary amounts "
+    "and dates. Confirm destructive actions before executing. "
+    "Be friendly, concise, and helpful."
+)
+
+
+def load_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE) as f:
+            return json.load(f)
+    return {}
+
+
+def save_state(state):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+
 
 def main():
-    print("=== Azure AI Foundry — ActualBudget MCP Agent Setup ===")
-    print(f"Endpoint: {PROJECT_ENDPOINT}")
-    print(f"MCP URL:  {MCP_SERVER_URL}")
-    print()
+    parser = argparse.ArgumentParser(description="Register/update SunnieAI agent in Azure AI Foundry")
+    parser.add_argument("--model", default="gpt-4o", help="Model deployment name (default: gpt-4o)")
+    parser.add_argument("--mcp-url", default=None, help="MCP server URL (overrides MCP_SERVER_URL env)")
+    parser.add_argument("--delete", action="store_true", help="Delete the existing agent")
+    args = parser.parse_args()
+
+    project_endpoint = os.environ.get("PROJECT_ENDPOINT")
+    mcp_url = args.mcp_url or os.environ.get("MCP_SERVER_URL")
+
+    if not project_endpoint:
+        print("Error: PROJECT_ENDPOINT environment variable is required")
+        print('  export PROJECT_ENDPOINT="https://<region>.api.azureml.ms/..."')
+        sys.exit(1)
+
+    if not mcp_url and not args.delete:
+        print("Error: MCP_SERVER_URL env or --mcp-url flag is required")
+        sys.exit(1)
 
     client = AIProjectClient(
         credential=DefaultAzureCredential(),
-        endpoint=PROJECT_ENDPOINT,
+        endpoint=project_endpoint,
     )
 
-    # Create MCP tool pointing to our server
+    state = load_state()
+    agent_id = state.get("agent_id")
+
+    # Delete flow
+    if args.delete:
+        if agent_id:
+            client.agents.delete_agent(agent_id)
+            print(f"✓ Agent {agent_id} deleted")
+            os.remove(STATE_FILE)
+        else:
+            print("No agent to delete (no state file)")
+        return
+
+    # Build MCP tool
     mcp_tool = McpTool(
         server_label="actualbudget",
-        server_url=MCP_SERVER_URL,
+        server_url=mcp_url,
         allowed_tools=MCP_TOOLS,
     )
     mcp_tool.set_approval_mode("never")
     mcp_tool.update_headers("Accept", "application/json, text/event-stream")
     mcp_tool.update_headers("Content-Type", "application/json")
 
-    # Create the agent
-    agent = client.agents.create_agent(
-        model="gpt-4o",
-        name="actualbudget-assistant",
-        instructions=(
-            "You are a personal finance assistant with access to the user's "
-            "Actual Budget data. Use the available tools to help manage budgets, "
-            "accounts, transactions, categories, and more. Always start by listing "
-            "budgets and loading one before performing other operations. Be precise "
-            "with monetary amounts and dates. Confirm destructive actions before executing."
-        ),
-        tools=mcp_tool.definitions,
-    )
+    print(f"=== SunnieAI Agent Setup ===")
+    print(f"Endpoint: {project_endpoint}")
+    print(f"Model:    {args.model}")
+    print(f"MCP URL:  {mcp_url}")
+    print(f"Tools:    {len(MCP_TOOLS)}")
+    print()
 
-    print(f"✓ Agent created successfully!")
-    print(f"  ID:    {agent.id}")
+    if agent_id:
+        # Update existing agent
+        try:
+            agent = client.agents.update_agent(
+                agent_id,
+                model=args.model,
+                name=AGENT_NAME,
+                instructions=INSTRUCTIONS,
+                tools=mcp_tool.definitions,
+            )
+            print(f"✓ Agent updated (id: {agent.id})")
+        except Exception as e:
+            if "NotFound" in str(e):
+                print(f"  Agent {agent_id} not found, creating new one...")
+                agent_id = None
+            else:
+                raise
+
+    if not agent_id:
+        # Create new agent
+        agent = client.agents.create_agent(
+            model=args.model,
+            name=AGENT_NAME,
+            instructions=INSTRUCTIONS,
+            tools=mcp_tool.definitions,
+        )
+        print(f"✓ Agent created (id: {agent.id})")
+
+    # Save state for future updates
+    save_state({
+        "agent_id": agent.id,
+        "model": args.model,
+        "mcp_url": mcp_url,
+        "tools": MCP_TOOLS,
+    })
+
     print(f"  Name:  {agent.name}")
     print(f"  Model: {agent.model}")
-    print(f"  Tools: {len(MCP_TOOLS)} MCP tools registered")
+    print(f"  State: saved to {STATE_FILE}")
     print()
-    print("To use this agent in a run, pass the user's JWT as a custom header:")
-    print()
-    print("  mcp_tool.update_headers('Authorization', f'Bearer {user_jwt}')")
-    print("  run = client.agents.runs.create(")
-    print("      thread_id=thread.id,")
-    print("      agent_id=agent.id,")
-    print("      tool_resources=mcp_tool.resources,")
-    print("  )")
+    print("Agent ID for auth-api config:")
+    print(f"  FOUNDRY_AGENT_ID={agent.id}")
 
 
 if __name__ == "__main__":
     main()
+

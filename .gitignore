@@ -5,3 +5,6 @@ __pycache__/
 *.pyc
 .venv/
 package-lock.json
+
+# Foundry agent state (local)
+scripts/.foundry-agent-state.json

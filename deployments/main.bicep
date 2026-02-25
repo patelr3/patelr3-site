@@ -28,6 +28,11 @@ param postgresPassword string
 @secure()
 param financeApiKey string
 
+@description('Azure AI Foundry project endpoint (set after foundry.bicep deployment)')
+param foundryProjectEndpoint string = ''
+@description('Azure AI Foundry agent ID (set after agent registration)')
+param foundryAgentId string = ''
+
 param postgresUser string = 'patelr3'
 param postgresDb string = 'patelr3_site'
 
@@ -110,6 +115,8 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'AUTH_API_URL', value: 'https://${projectName}-auth-api.${cae.outputs.defaultDomain}' }
       { name: 'FINANCE_API_URL', value: 'https://finance-api.${financeCaeDomain}' }
       { name: 'FINANCE_API_KEY', secretRef: 'finance-api-key' }
+      { name: 'FOUNDRY_PROJECT_ENDPOINT', value: foundryProjectEndpoint }
+      { name: 'FOUNDRY_AGENT_ID', value: foundryAgentId }
     ]
     secrets: [
       { name: 'google-client-id', value: googleClientId }

@@ -10,6 +10,9 @@ const config = {
   // OIDC provider config (auth-api acting as IdP for ActualBudget instances)
   oidcClientId: process.env.OIDC_CLIENT_ID || "actualbudget",
   oidcClientSecret: process.env.OIDC_CLIENT_SECRET || process.env.JWT_SECRET || "change-me",
+  // Azure AI Foundry (SunnieAI chat)
+  foundryProjectEndpoint: process.env.FOUNDRY_PROJECT_ENDPOINT || "",
+  foundryAgentId: process.env.FOUNDRY_AGENT_ID || "",
   jwtExpiresIn: "24h",
   port: 8000,
 };

@@ -9,6 +9,7 @@ import ServicePage from "./pages/ServicePage";
 import AdminPanel from "./pages/AdminPanel";
 import Account from "./pages/Account";
 import ResetPassword from "./pages/ResetPassword";
+import SunnieAI from "./pages/SunnieAI";
 import api from "./api";
 
 export const UserContext = createContext(null);
@@ -63,6 +64,10 @@ export default function App() {
             <Route
               path="/account"
               element={user ? <Account user={user} /> : <Navigate to="/signin" />}
+            />
+            <Route
+              path="/sunnieai"
+              element={user ? <SunnieAI user={user} /> : <Navigate to="/signin" />}
             />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route

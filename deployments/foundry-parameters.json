@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "projectName": {
+      "value": "patelr3"
+    },
+    "location": {
+      "value": "eastus2"
+    },
+    "modelDeployments": {
+      "value": [
+        {
+          "name": "gpt-4o",
+          "model": "gpt-4o",
+          "format": "OpenAI",
+          "version": "2024-08-06",
+          "skuName": "GlobalStandard",
+          "capacity": 10
+        }
+      ]
+    }
+  }
+}

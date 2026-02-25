@@ -34,6 +34,12 @@ export default function Navbar({ user, onLogout }) {
           </NavLink>
         )}
 
+        {user && (
+          <NavLink to="/sunnieai" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} onClick={handleNavClick}>
+            ☀️ SunnieAI
+          </NavLink>
+        )}
+
         <NavLink to="/about" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} onClick={handleNavClick}>
           About Me
         </NavLink>

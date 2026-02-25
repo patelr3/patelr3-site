@@ -32,6 +32,8 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - FRONTEND_URL=${FRONTEND_URL}
+      - FOUNDRY_PROJECT_ENDPOINT=${FOUNDRY_PROJECT_ENDPOINT}
+      - FOUNDRY_AGENT_ID=${FOUNDRY_AGENT_ID}
     depends_on:
       postgres:
         condition: service_healthy

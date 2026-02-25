@@ -119,6 +119,18 @@ export async function initDb() {
     )
   `);
 
+  // Chat threads (user → Foundry thread mapping)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS chat_threads (
+      id              SERIAL PRIMARY KEY,
+      user_id         INT REFERENCES users(id) ON DELETE CASCADE,
+      foundry_thread_id VARCHAR(255) NOT NULL,
+      title           VARCHAR(255) DEFAULT 'New conversation',
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   // Seed a test user in local dev only (no AUTH_API_URL set)
   if (!config.authApiUrl) {
     const existing = await pool.query("SELECT id FROM users WHERE email = 'test@local.dev'");
@@ -360,6 +372,34 @@ export async function consumeOidcAuthCode(code) {
   const { rows } = await pool.query(
     `DELETE FROM oidc_auth_codes WHERE code = $1 AND expires_at > NOW() RETURNING *`,
     [code]
+  );
+  return rows[0] || null;
+}
+
+// ── Chat thread queries ────────────────────────────────────────
+
+export async function getOrCreateThread(userId, foundryThreadId, title) {
+  const { rows } = await pool.query(
+    `INSERT INTO chat_threads (user_id, foundry_thread_id, title)
+     VALUES ($1, $2, $3) RETURNING *`,
+    [userId, foundryThreadId, title]
+  );
+  return rows[0];
+}
+
+export async function getUserThreads(userId) {
+  const { rows } = await pool.query(
+    `SELECT id, foundry_thread_id, title, created_at, updated_at
+     FROM chat_threads WHERE user_id = $1 ORDER BY updated_at DESC`,
+    [userId]
+  );
+  return rows;
+}
+
+export async function deleteThread(userId, foundryThreadId) {
+  const { rows } = await pool.query(
+    `DELETE FROM chat_threads WHERE user_id = $1 AND foundry_thread_id = $2 RETURNING *`,
+    [userId, foundryThreadId]
   );
   return rows[0] || null;
 }

@@ -1,39 +1,60 @@
-# Azure AI Foundry — ActualBudget MCP Integration
+# Azure AI Foundry — SunnieAI Setup
 
 ## Overview
 
-The ActualBudget MCP server enables Azure AI Foundry agents to manage budgets through natural language. Users authenticate via their existing Google OAuth, and each user can only access their own ActualBudget instance.
+SunnieAI is a chat interface on patelr3-site that connects to Azure AI Foundry Agent Service. Users chat with an AI assistant that can access their Actual Budget data through MCP tools, with toggleable data source access.
 
 ## Prerequisites
 
 1. **MCP server deployed** — `patelr3-mcp-server` ACA must be running
-2. **Azure AI Foundry project** — Create a hub + project in Azure AI Foundry
-3. **Model deployment** — Deploy a model (e.g., `gpt-4o`) in the project
+2. **Azure subscription** — with permissions to create AI Services resources
+3. **Python 3.9+** — for agent registration script
 
-## Setup
+## Deployment
 
-### Option A: Script (recommended)
+### Automated (GitHub Actions)
+
+Trigger the **"Deploy AI Foundry"** workflow from the Actions tab:
+1. Go to **Actions** → **Deploy AI Foundry** → **Run workflow**
+2. Select model (default: `gpt-4o`)
+3. Workflow deploys Bicep infra + registers agent
+
+### Local
 
 ```bash
 pip install azure-ai-projects azure-ai-agents azure-identity
-
-export PROJECT_ENDPOINT="https://<region>.api.azureml.ms/..."
-export MCP_SERVER_URL="https://patelr3-mcp-server.<cae-domain>"
 az login
-
-python scripts/setup-foundry-agent.py
+./scripts/deploy-foundry.sh
 ```
 
-### Option B: Azure Portal
+### What gets deployed (Bicep)
 
-1. Go to [Azure AI Foundry](https://ai.azure.com)
-2. Open your project → **Agents** → **Create agent**
-3. Under **Tools**, click **Add tool** → **MCP Server**
-4. Configure:
-   - **Server label**: `actualbudget`
-   - **Server URL**: `https://patelr3-mcp-server.<cae-domain>`
-   - **Allowed tools**: Select all 21 tools
-5. Save and test
+| Resource | Type | Purpose |
+|----------|------|---------|
+| AI Services | `Microsoft.CognitiveServices/accounts` | OpenAI model hosting |
+| Model deployment | `accounts/deployments` | gpt-4o (configurable) |
+| AI Hub | `MachineLearningServices/workspaces` (kind: Hub) | Governance layer |
+| AI Project | `MachineLearningServices/workspaces` (kind: Project) | SunnieAI workspace |
+| Storage Account | `Microsoft.Storage` | Required by Hub |
+| Key Vault | `Microsoft.KeyVault` | Required by Hub |
+
+### After deployment
+
+Set these environment variables in auth-api (ACA or `.env`):
+```
+FOUNDRY_PROJECT_ENDPOINT=<from Bicep output>
+FOUNDRY_AGENT_ID=<from setup-foundry-agent.py output>
+```
+
+## Re-registration
+
+**Re-run `setup-foundry-agent.py` when:**
+- Adding new MCP servers or tools
+- Changing the model (e.g., `--model gpt-4o-mini`)
+- Updating agent instructions
+- MCP server URL changes
+
+The script is **idempotent** — it updates the existing agent instead of creating a new one (state stored in `scripts/.foundry-agent-state.json`).
 
 ## Authentication Flow
 

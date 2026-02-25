@@ -16,6 +16,7 @@ import {
   createResetToken, findResetToken, deleteResetToken,
 } from "./db.js";
 import oidcRouter from "./oidc.js";
+import chatRouter from "./chat.js";
 
 const app = express();
 app.use(express.json());
@@ -432,6 +433,9 @@ app.delete("/auth/users/:id", requireAuth, requireAdmin, async (req, res) => {
 
 // ── OIDC Identity Provider (for ActualBudget instances) ────────
 app.use("/auth/oidc", oidcRouter);
+
+// ── SunnieAI Chat (proxy to Azure AI Foundry) ──────────────────
+app.use("/auth/chat", requireAuth, chatRouter);
 
 // ── Actual Budget deployment proxy (to finance-api) ────────────
 
