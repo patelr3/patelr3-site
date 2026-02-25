@@ -1,0 +1,3 @@
+[submodule "actual-server-setup"]
+	path = actual-server-setup
+	url = https://github.com/patelr3/actual-server-setup.git
