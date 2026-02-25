@@ -55,6 +55,16 @@ services:
       - FRONTEND_URL=${FRONTEND_URL}
     restart: unless-stopped
 
+  mcp-server:
+    build: ./actual-server-setup/mcp-server
+    expose:
+      - "8090"
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - FINANCE_API_URL=${FINANCE_API_URL}
+      - FINANCE_API_KEY=${FINANCE_API_KEY}
+    restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     environment:

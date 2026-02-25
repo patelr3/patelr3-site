@@ -24,10 +24,12 @@ See [docs/architecture.md](docs/architecture.md) for the full system design.
 | --------------------- | ------------------ | ----------------------------------------------- |
 | nginx                 | Nginx 1.25         | Reverse proxy & auth gate (local dev only)       |
 | frontend              | React 18 (Vite)    | SPA — About Me, Dashboard, Admin Panel           |
-| auth-api              | Node.js 20 Express | Google OAuth, JWT, RBAC, deployment proxy         |
+| auth-api              | Node.js 20 Express | Google OAuth, JWT, RBAC, OIDC IdP, deployment proxy |
 | hello-world           | Node.js 20 Express | Sample public micro-service                      |
 | hello-world-restricted| Node.js 20 Express | Sample restricted micro-service                  |
 | postgres              | PostgreSQL 16      | User accounts, roles, services, access requests  |
+
+> The [ActualBudget MCP server](https://github.com/patelr3/actual-server-setup/tree/main/mcp-server) lives in the `actual-server-setup` submodule and is included in the local Docker Compose stack.
 
 ### Multi-Tenant Finance Services
 
@@ -68,11 +70,12 @@ patelr3-site/
 │   ├── workflows/          ← CI, Deploy, Dependabot auto-merge
 │   ├── dependabot.yml      ← Automated dependency updates
 │   └── copilot-instructions.md
-├── auth-api/               ← Auth + RBAC + deployment proxy
+├── auth-api/               ← Auth + RBAC + OIDC IdP + deployment proxy
 │   ├── src/
 │   │   ├── app.js          ← Express routes (auth, services, deployments)
 │   │   ├── config.js       ← Environment config
-│   │   └── db.js           ← PostgreSQL schema & seed
+│   │   ├── db.js           ← PostgreSQL schema & seed
+│   │   └── oidc.js         ← OIDC Identity Provider (for ActualBudget)
 │   └── tests/
 ├── frontend/               ← React SPA
 │   └── src/

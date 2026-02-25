@@ -104,6 +104,21 @@ export async function initDb() {
     )
   `);
 
+  // OIDC authorization codes (auth-api as OIDC IdP for ActualBudget instances)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS oidc_auth_codes (
+      code          VARCHAR(255) PRIMARY KEY,
+      user_id       INT REFERENCES users(id) ON DELETE CASCADE,
+      redirect_uri  TEXT NOT NULL,
+      client_id     VARCHAR(255) NOT NULL,
+      code_challenge TEXT,
+      code_challenge_method VARCHAR(10),
+      google_claims JSONB,
+      expires_at    TIMESTAMPTZ NOT NULL,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   // Seed a test user in local dev only (no AUTH_API_URL set)
   if (!config.authApiUrl) {
     const existing = await pool.query("SELECT id FROM users WHERE email = 'test@local.dev'");
@@ -328,6 +343,25 @@ export async function findResetToken(token) {
 
 export async function deleteResetToken(token) {
   await pool.query("DELETE FROM password_reset_tokens WHERE token = $1", [token]);
+}
+
+// ── OIDC authorization code queries ────────────────────────────
+
+export async function storeOidcAuthCode(code, userId, redirectUri, clientId, codeChallenge, codeChallengeMethod, googleClaims) {
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+  await pool.query(
+    `INSERT INTO oidc_auth_codes (code, user_id, redirect_uri, client_id, code_challenge, code_challenge_method, google_claims, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [code, userId, redirectUri, clientId, codeChallenge, codeChallengeMethod, JSON.stringify(googleClaims), expiresAt]
+  );
+}
+
+export async function consumeOidcAuthCode(code) {
+  const { rows } = await pool.query(
+    `DELETE FROM oidc_auth_codes WHERE code = $1 AND expires_at > NOW() RETURNING *`,
+    [code]
+  );
+  return rows[0] || null;
 }
 
 export default pool;

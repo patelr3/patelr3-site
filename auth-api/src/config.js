@@ -7,6 +7,9 @@ const config = {
   authApiUrl: process.env.AUTH_API_URL || "",  // set in ACA; empty = use frontendUrl
   financeApiUrl: process.env.FINANCE_API_URL || "",  // finance-api base URL
   financeApiKey: process.env.FINANCE_API_KEY || "dev-finance-key",
+  // OIDC provider config (auth-api acting as IdP for ActualBudget instances)
+  oidcClientId: process.env.OIDC_CLIENT_ID || "actualbudget",
+  oidcClientSecret: process.env.OIDC_CLIENT_SECRET || process.env.JWT_SECRET || "change-me",
   jwtExpiresIn: "24h",
   port: 8000,
 };

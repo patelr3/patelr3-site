@@ -25,6 +25,8 @@ const mockDb = {
   createResetToken: jest.fn(),
   findResetToken: jest.fn(),
   deleteResetToken: jest.fn(),
+  storeOidcAuthCode: jest.fn(),
+  consumeOidcAuthCode: jest.fn(),
 };
 
 jest.unstable_mockModule("../src/db.js", () => mockDb);

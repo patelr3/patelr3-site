@@ -15,9 +15,11 @@ import {
   findUserById, listUsers, updateUserRole, updateUserPassword, touchLastLogin, deleteUser,
   createResetToken, findResetToken, deleteResetToken,
 } from "./db.js";
+import oidcRouter from "./oidc.js";
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
 // CORS — allow frontend origin for cross-origin API calls in production
@@ -427,6 +429,9 @@ app.delete("/auth/users/:id", requireAuth, requireAdmin, async (req, res) => {
     res.status(500).json({ error: "Failed to delete user" });
   }
 });
+
+// ── OIDC Identity Provider (for ActualBudget instances) ────────
+app.use("/auth/oidc", oidcRouter);
 
 // ── Actual Budget deployment proxy (to finance-api) ────────────
 

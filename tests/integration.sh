@@ -101,6 +101,26 @@ check_json "GET /auth/me after logout returns unauthenticated" "$BASE_URL/api/au
 # Cleanup
 rm -f "$COOKIE_JAR"
 
+# ── MCP Server ──────────────────────────────────────────────────
+echo ""
+echo "MCP Server:"
+check_json "MCP health check returns ok" "$BASE_URL/api/mcp/health" "status" "ok"
+
+MCP_TOOLS=$(curl -s "$BASE_URL/api/mcp/tools" | python3 -c "import sys,json; print(len(json.loads(sys.stdin.read()).get('tools',[])))" 2>/dev/null || echo "0")
+if [ "$MCP_TOOLS" -gt "15" ]; then pass "MCP tools/list returns $MCP_TOOLS tools"; else fail "MCP tools/list" "expected >15 tools, got $MCP_TOOLS"; fi
+
+MCP_UNAUTH=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"name":"list_budgets","arguments":{}}' "$BASE_URL/api/mcp/tools/call")
+if [ "$MCP_UNAUTH" = "401" ]; then pass "MCP tool call without auth returns 401"; else fail "MCP tool call without auth" "expected 401, got $MCP_UNAUTH"; fi
+
+# ── OIDC Discovery ──────────────────────────────────────────────
+echo ""
+echo "OIDC Provider:"
+check_status "OIDC discovery returns 200" "$BASE_URL/api/auth/oidc/.well-known/openid-configuration" "200"
+check_status "OIDC JWKS returns 200" "$BASE_URL/api/auth/oidc/jwks" "200"
+
+OIDC_ISSUER=$(curl -s "$BASE_URL/api/auth/oidc/.well-known/openid-configuration" | json_field "issuer")
+if [ -n "$OIDC_ISSUER" ]; then pass "OIDC issuer is set ($OIDC_ISSUER)"; else fail "OIDC issuer" "empty"; fi
+
 # ── Frontend nginx proxy (verifies proxy works without outer nginx) ──
 echo ""
 echo "Frontend Nginx Proxy (production-like):"
