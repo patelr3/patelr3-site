@@ -255,7 +255,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
     // Add agent reference if configured
     if (FOUNDRY_AGENT_NAME) {
-      responseBody.agent = {
+      responseBody.agent_reference = {
         name: FOUNDRY_AGENT_NAME,
         version: "1",
         type: "agent_reference",

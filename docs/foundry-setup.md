@@ -136,7 +136,7 @@ const response = await foundryFetch('/responses', {
     model: 'gpt-4.1',
     stream: true,
     store: false,
-    agent: { name: 'sunnieai', version: '1', type: 'agent_reference' },
+    agent_reference: { name: 'sunnieai', version: '1', type: 'agent_reference' },
   }),
 });
 ```
