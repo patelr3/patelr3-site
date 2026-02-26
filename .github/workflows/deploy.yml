@@ -107,8 +107,10 @@ jobs:
           KV_NAME="patelr3kvl3ytczhajsp7i"
           ENDPOINT=$(az keyvault secret show --vault-name "$KV_NAME" --name foundry-project-endpoint --query value -o tsv 2>/dev/null || echo "")
           AGENT_ID=$(az keyvault secret show --vault-name "$KV_NAME" --name foundry-agent-id --query value -o tsv 2>/dev/null || echo "")
+          if [ -z "$ENDPOINT" ]; then echo "⚠ foundry-project-endpoint not found in AKV"; fi
+          if [ -z "$AGENT_ID" ]; then echo "⚠ foundry-agent-id not found in AKV"; fi
           echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
-          echo "agent-id=$AGENT_ID" >> "$GITHUB_OUTPUT"
+          echo "agent_id=$AGENT_ID" >> "$GITHUB_OUTPUT"
 
       - name: Deploy Bicep
         run: |
@@ -124,7 +126,7 @@ jobs:
               postgresPassword="${{ secrets.POSTGRES_PASSWORD }}" \
               financeApiKey="${{ secrets.FINANCE_API_KEY }}" \
               foundryProjectEndpoint="${{ steps.foundry.outputs.endpoint }}" \
-              foundryAgentId="${{ steps.foundry.outputs.agent-id }}"
+              foundryAgentId="${{ steps.foundry.outputs.agent_id }}"
 
       - name: Update container app revisions
         run: |
@@ -177,4 +179,88 @@ jobs:
 
           echo ""
           echo "=== Results: $PASS passed, $FAIL failed ==="
+          if [ "$FAIL" -gt 0 ]; then exit 1; fi
+
+      - name: Post-deploy integration tests
+        run: |
+          FRONTEND_URL="https://www.arayosun.com"
+          CI_EMAIL="citestuser@localhost.dev"
+          CI_PASS="CiTestPass2026!"
+          COOKIE_JAR="/tmp/ci-cookies-$$"
+          PASS=0
+          FAIL=0
+
+          pass() { PASS=$((PASS + 1)); echo "  ✓ $1"; }
+          fail() { FAIL=$((FAIL + 1)); echo "  ✗ $1: $2"; }
+
+          # ── Register or login CI test user ─────────────────────
+          echo "=== CI Integration Tests ==="
+          echo ""
+          echo "Authentication:"
+          REG_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$FRONTEND_URL/api/auth/register" \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"$CI_EMAIL\",\"password\":\"$CI_PASS\",\"displayName\":\"CI Test User\"}" \
+            -c "$COOKIE_JAR")
+
+          if [ "$REG_STATUS" = "201" ]; then
+            pass "Register CI user (201)"
+          elif [ "$REG_STATUS" = "409" ]; then
+            LOGIN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$FRONTEND_URL/api/auth/login" \
+              -H "Content-Type: application/json" \
+              -d "{\"email\":\"$CI_EMAIL\",\"password\":\"$CI_PASS\"}" \
+              -c "$COOKIE_JAR")
+            if [ "$LOGIN_STATUS" = "200" ]; then
+              pass "Login CI user (already registered)"
+            else
+              fail "Login CI user" "expected 200, got $LOGIN_STATUS"
+            fi
+          else
+            fail "Register CI user" "expected 201 or 409, got $REG_STATUS"
+          fi
+
+          # ── Authenticated endpoint tests ───────────────────────
+          echo ""
+          echo "Authenticated Routes:"
+
+          # /auth/me should return authenticated
+          ME_BODY=$(curl -s -b "$COOKIE_JAR" "$FRONTEND_URL/api/auth/me")
+          ME_AUTH=$(echo "$ME_BODY" | grep -o '"authenticated":true' || echo "")
+          if [ -n "$ME_AUTH" ]; then
+            pass "GET /auth/me returns authenticated"
+          else
+            fail "GET /auth/me" "not authenticated: $ME_BODY"
+          fi
+
+          # /auth/services should return 200
+          SVC_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE_JAR" "$FRONTEND_URL/api/auth/services")
+          if [ "$SVC_STATUS" = "200" ]; then pass "GET /auth/services (200)"; else fail "GET /auth/services" "expected 200, got $SVC_STATUS"; fi
+
+          # hello-world should return service name
+          HW_BODY=$(curl -s -b "$COOKIE_JAR" "$FRONTEND_URL/api/hello/")
+          HW_SVC=$(echo "$HW_BODY" | grep -o '"service":"hello-world"' || echo "")
+          if [ -n "$HW_SVC" ]; then pass "GET /api/hello/ returns service name"; else fail "GET /api/hello/" "unexpected: $HW_BODY"; fi
+
+          # ── SunnieAI chat health ───────────────────────────────
+          echo ""
+          echo "SunnieAI:"
+          CHAT_BODY=$(curl -s -b "$COOKIE_JAR" "$FRONTEND_URL/api/auth/chat/health")
+          CHAT_CONFIGURED=$(echo "$CHAT_BODY" | grep -o '"configured":true' || echo "")
+          if [ -n "$CHAT_CONFIGURED" ]; then
+            pass "GET /auth/chat/health returns configured:true"
+          else
+            fail "GET /auth/chat/health" "expected configured:true, got: $CHAT_BODY"
+          fi
+
+          CHAT_EP=$(echo "$CHAT_BODY" | grep -o '"endpoint":"set"' || echo "")
+          if [ -n "$CHAT_EP" ]; then pass "Foundry endpoint is set"; else fail "Foundry endpoint" "missing"; fi
+
+          CHAT_AGENT=$(echo "$CHAT_BODY" | grep -o '"agentId":"set"' || echo "")
+          if [ -n "$CHAT_AGENT" ]; then pass "Foundry agent ID is set"; else fail "Foundry agent ID" "missing"; fi
+
+          # ── Cleanup ────────────────────────────────────────────
+          curl -s -o /dev/null -b "$COOKIE_JAR" "$FRONTEND_URL/api/auth/logout" || true
+          rm -f "$COOKIE_JAR"
+
+          echo ""
+          echo "=== CI Integration Results: $PASS passed, $FAIL failed ==="
           if [ "$FAIL" -gt 0 ]; then exit 1; fi
