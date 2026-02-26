@@ -74,6 +74,7 @@ def main():
     parser.add_argument("--model", default="gpt-4.1", help="Model deployment name (default: gpt-4.1)")
     parser.add_argument("--mcp-url", default=None, help="MCP server URL (overrides MCP_SERVER_URL env)")
     parser.add_argument("--agent-id", default=None, help="Existing agent ID to update (overrides state file)")
+    parser.add_argument("--recreate", action="store_true", help="Force creation of a new agent (ignores existing state)")
     parser.add_argument("--delete", action="store_true", help="Delete the existing agent")
     args = parser.parse_args()
 
@@ -96,6 +97,8 @@ def main():
 
     state = load_state()
     agent_id = args.agent_id or state.get("agent_id")
+    if args.recreate:
+        agent_id = None
 
     # Delete flow
     if args.delete:

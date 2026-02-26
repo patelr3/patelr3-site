@@ -279,6 +279,8 @@ curl -s https://www.arayosun.com/api/auth/oidc/.well-known/openid-configuration 
 | SunnieAI list_budgets returns `[]` despite budgets existing | `service-mcp` user missing from `users` table or lacks ADMIN role | Verify `INSERT OR IGNORE INTO users (..., role) VALUES ('service-mcp', ..., 'ADMIN', ...)` in `entrypoint.sh` |
 | SunnieAI "Budget not found" when loading | `downloadBudget()` called with wrong ID property | Use `groupId` (sync ID), NOT `id` or `fileId`; check `getBudgets()` return shape |
 | SunnieAI fails to respond for transactions | `get_transactions` returns unbounded results overwhelming Foundry context | Add `limit` param (default 50, max 200) and sort by date desc in `transactions.js` |
+| Foundry Bicep deploy fails "NetworkAcls required" | New Foundry experience requires `networkAcls` on CognitiveServices account | Add `networkAcls: { defaultAction: 'Allow' }` to account properties in `foundry.bicep` |
+| Foundry model deploy fails for gpt-4.1 | Wrong SKU type — `Standard` not available for gpt-4.1 in most regions | Use `GlobalStandard` SKU instead of `Standard` in Bicep and parameters |
 
 ### Dependency Chains
 

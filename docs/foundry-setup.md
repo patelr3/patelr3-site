@@ -2,18 +2,18 @@
 
 ## Overview
 
-SunnieAI is a chat interface on patelr3-site that connects to Azure AI Foundry Agent Service. Users chat with an AI assistant that can access their Actual Budget data through MCP tools, with toggleable data source access.
+SunnieAI is a chat interface on patelr3-site that connects to Azure AI Foundry Agent Service (new Foundry experience). Users chat with an AI assistant that can access their Actual Budget data through MCP tools configured as **Tools** (not Knowledge), with toggleable data source access.
 
 ## Architecture
 
-The Foundry resources use the **CognitiveServices** resource provider (newer architecture — not the older MachineLearningServices Hub/Project model). The AI Services account and project were created manually via the Azure AI Foundry portal, and are now managed idempotently via `deployments/foundry.bicep`.
+The Foundry resources use the **CognitiveServices** resource provider. The AI Services account and project are managed idempotently via `deployments/foundry.bicep`.
 
 | Resource | Type | Name | Location |
 |----------|------|------|----------|
 | AI Services | `Microsoft.CognitiveServices/accounts` | `patelr3-openai-1` | westus |
 | AI Project | `accounts/projects` | `patelr3-prod-1` | westus |
-| Model deployment | `accounts/deployments` | `gpt-4o` (Standard, 2024-08-06) | westus |
-| Agent | Foundry Agent | `sunnieai-assistant` (`asst_qxOzueeredSdAyDr65qfKc4k`) | — |
+| Model deployment | `accounts/deployments` | `gpt-4.1` (GlobalStandard, 2025-04-14) | westus |
+| Agent | Foundry Agent | `sunnieai-assistant` | — |
 
 **Resource Group:** `patelr3-ai-rg`  
 **Project Endpoint:** `https://patelr3-openai-1.services.ai.azure.com/api/projects/patelr3-prod-1`
@@ -30,7 +30,7 @@ The Foundry resources use the **CognitiveServices** resource provider (newer arc
 
 Trigger the **"Deploy AI Foundry"** workflow from the Actions tab:
 1. Go to **Actions** → **Deploy AI Foundry** → **Run workflow**
-2. Select model (default: `gpt-4o`)
+2. Select model (default: `gpt-4.1`)
 3. Workflow deploys Bicep infra, registers agent, and stores outputs in AKV
 
 The `deploy.yml` workflow (main site deploy) automatically fetches `foundry-project-endpoint` and `foundry-agent-id` from AKV and passes them to auth-api.
@@ -60,7 +60,7 @@ python scripts/setup-foundry-agent.py
 | Resource | Type | Purpose |
 |----------|------|---------|
 | AI Services | `Microsoft.CognitiveServices/accounts` | OpenAI model hosting |
-| Model deployment | `accounts/deployments` | gpt-4o (configurable) |
+| Model deployment | `accounts/deployments` | gpt-4.1 GlobalStandard (configurable) |
 | AI Project | `accounts/projects` | SunnieAI workspace |
 | RBAC role assignment | `Microsoft.Authorization/roleAssignments` | Cognitive Services User for auth-api |
 
@@ -76,7 +76,8 @@ The `deploy.yml` workflow fetches these from AKV and passes them to auth-api as 
 
 **Re-run `setup-foundry-agent.py` when:**
 - Adding new MCP servers or tools
-- Changing the model (e.g., `--model gpt-4o-mini`)
+- Changing the model (e.g., `--model gpt-4.1-mini`)
+- Switching between classic and new Foundry (use `--recreate` to force a new agent)
 - Updating agent instructions
 - MCP server URL changes
 
@@ -152,3 +153,5 @@ The agent will automatically:
 | No budgets found | Ensure user has deployed an AB instance |
 | Tool timeout (50s) | Large transaction queries may timeout; use date filters |
 | Connection refused | Verify MCP server ACA is running and externally accessible |
+| NetworkAcls required | Add `networkAcls: { defaultAction: 'Allow' }` to CognitiveServices Bicep properties |
+| Model SKU error | Use `GlobalStandard` SKU for gpt-4.1 (not `Standard`) |

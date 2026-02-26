@@ -27,7 +27,7 @@ param modelDeployments array = [
     model: 'gpt-4.1'
     format: 'OpenAI'
     version: '2025-04-14'
-    skuName: 'Standard'
+    skuName: 'GlobalStandard'
     capacity: 10
   }
 ]
@@ -53,6 +53,9 @@ resource aiServices 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
   properties: {
     customSubDomainName: aiServicesName
     publicNetworkAccess: 'Enabled'
+    networkAcls: {
+      defaultAction: 'Allow'
+    }
   }
 }
 
