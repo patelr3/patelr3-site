@@ -5,7 +5,7 @@ on:
     inputs:
       model:
         description: 'Model deployment name'
-        default: 'gpt-4o'
+        default: 'gpt-4.1'
         required: false
 
 permissions:
@@ -99,7 +99,7 @@ jobs:
           MCP_SERVER_URL: ${{ steps.mcp.outputs.url }}
         run: |
           python scripts/setup-foundry-agent.py \
-            --model "${{ github.event.inputs.model || 'gpt-4o' }}" \
+            --model "${{ github.event.inputs.model || 'gpt-4.1' }}" \
             --mcp-url "${{ steps.mcp.outputs.url }}"
 
       - name: Store agent ID in Key Vault

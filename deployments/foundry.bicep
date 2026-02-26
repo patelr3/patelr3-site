@@ -23,10 +23,10 @@ param projectName string = 'patelr3-prod-1'
 @description('Model deployments to create')
 param modelDeployments array = [
   {
-    name: 'gpt-4o'
-    model: 'gpt-4o'
+    name: 'gpt-4.1'
+    model: 'gpt-4.1'
     format: 'OpenAI'
-    version: '2024-08-06'
+    version: '2025-04-14'
     skuName: 'Standard'
     capacity: 10
   }

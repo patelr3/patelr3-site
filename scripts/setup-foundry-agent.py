@@ -71,7 +71,7 @@ def save_state(state):
 
 def main():
     parser = argparse.ArgumentParser(description="Register/update SunnieAI agent in Azure AI Foundry")
-    parser.add_argument("--model", default="gpt-4o", help="Model deployment name (default: gpt-4o)")
+    parser.add_argument("--model", default="gpt-4.1", help="Model deployment name (default: gpt-4.1)")
     parser.add_argument("--mcp-url", default=None, help="MCP server URL (overrides MCP_SERVER_URL env)")
     parser.add_argument("--agent-id", default=None, help="Existing agent ID to update (overrides state file)")
     parser.add_argument("--delete", action="store_true", help="Delete the existing agent")

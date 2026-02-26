@@ -2,7 +2,7 @@
 # Deploy Azure AI Foundry infrastructure and register the SunnieAI agent.
 #
 # Usage:
-#   ./scripts/deploy-foundry.sh [--model gpt-4o] [--mcp-url URL]
+#   ./scripts/deploy-foundry.sh [--model gpt-4.1] [--mcp-url URL]
 #
 # Prerequisites:
 #   - az login (authenticated)
@@ -11,7 +11,7 @@ set -euo pipefail
 
 RESOURCE_GROUP="${FOUNDRY_RESOURCE_GROUP:-patelr3-ai-rg}"
 LOCATION="${FOUNDRY_LOCATION:-westus}"
-MODEL="${1:-gpt-4o}"
+MODEL="${1:-gpt-4.1}"
 MCP_URL="${MCP_SERVER_URL:-}"
 
 echo "=== Deploy Azure AI Foundry ==="
