@@ -1,5 +1,7 @@
-// Azure AI Foundry infrastructure: Hub, Project, AI Services, model deployments.
-// Deployed separately from the main site infra since it lives in its own resource group.
+// Azure AI Foundry infrastructure: AI Services account, project, and model deployments.
+// Uses the CognitiveServices resource provider (newer architecture).
+// The AI Services account and project were initially created manually via the
+// Azure AI Foundry portal; this Bicep manages them idempotently going forward.
 //
 // Usage:
 //   az deployment group create \
@@ -10,10 +12,13 @@ targetScope = 'resourceGroup'
 
 // ── Parameters ─────────────────────────────────────────────────
 @description('Azure region')
-param location string = 'eastus2'
+param location string = 'westus'
 
-@description('Project prefix')
-param projectName string = 'patelr3'
+@description('AI Services account name')
+param aiServicesName string = 'patelr3-openai-1'
+
+@description('AI Foundry project name')
+param projectName string = 'patelr3-prod-1'
 
 @description('Model deployments to create')
 param modelDeployments array = [
@@ -22,53 +27,18 @@ param modelDeployments array = [
     model: 'gpt-4o'
     format: 'OpenAI'
     version: '2024-08-06'
-    skuName: 'GlobalStandard'
+    skuName: 'Standard'
     capacity: 10
   }
 ]
 
+@description('Principal ID of auth-api managed identity (for RBAC grant)')
+param authApiPrincipalId string = ''
+
 // ── Variables ──────────────────────────────────────────────────
 var tags = {
-  project: projectName
+  project: 'patelr3'
   managedBy: 'bicep'
-}
-var uniqueSuffix = uniqueString(resourceGroup().id, projectName)
-var aiServicesName = '${projectName}-ai-${uniqueSuffix}'
-var hubName = '${projectName}-ai-hub'
-var projectResourceName = '${projectName}-ai-project'
-var storageName = '${projectName}aist${uniqueSuffix}'
-var kvName = '${projectName}aikv${uniqueSuffix}'
-
-// ── Storage Account (required by AI Hub) ───────────────────────
-resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
-  name: take(storageName, 24)
-  location: location
-  tags: tags
-  kind: 'StorageV2'
-  sku: {
-    name: 'Standard_LRS'
-  }
-  properties: {
-    minimumTlsVersion: 'TLS1_2'
-    supportsHttpsTrafficOnly: true
-  }
-}
-
-// ── Key Vault (required by AI Hub) ─────────────────────────────
-resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
-  name: take(kvName, 24)
-  location: location
-  tags: tags
-  properties: {
-    tenantId: subscription().tenantId
-    sku: {
-      family: 'A'
-      name: 'standard'
-    }
-    enableRbacAuthorization: true
-    enableSoftDelete: true
-    softDeleteRetentionInDays: 7
-  }
 }
 
 // ── AI Services (Azure OpenAI) ─────────────────────────────────
@@ -107,66 +77,37 @@ resource modelDeploy 'Microsoft.CognitiveServices/accounts/deployments@2024-10-0
   }
 ]
 
-// ── AI Foundry Hub ─────────────────────────────────────────────
-resource aiHub 'Microsoft.MachineLearningServices/workspaces@2024-10-01' = {
-  name: hubName
+// ── AI Foundry Project ─────────────────────────────────────────
+resource aiProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview' = {
+  name: projectName
+  parent: aiServices
   location: location
   tags: tags
-  kind: 'Hub'
-  sku: {
-    name: 'Basic'
-    tier: 'Basic'
-  }
+  kind: 'AIServices'
   identity: {
     type: 'SystemAssigned'
   }
   properties: {
-    friendlyName: '${projectName} AI Hub'
-    storageAccount: storage.id
-    keyVault: keyVault.id
-    publicNetworkAccess: 'Enabled'
-  }
-
-  // Connect AI Services to the Hub
-  resource aiServicesConnection 'connections@2024-10-01' = {
-    name: '${aiServicesName}-connection'
-    properties: {
-      category: 'AIServices'
-      target: aiServices.properties.endpoint
-      authType: 'AAD'
-      isSharedToAll: true
-      metadata: {
-        ApiType: 'Azure'
-        ResourceId: aiServices.id
-      }
-    }
+    displayName: projectName
+    description: 'SunnieAI - Personal finance AI assistant'
   }
 }
 
-// ── AI Foundry Project ─────────────────────────────────────────
-resource aiProject 'Microsoft.MachineLearningServices/workspaces@2024-10-01' = {
-  name: projectResourceName
-  location: location
-  tags: tags
-  kind: 'Project'
-  sku: {
-    name: 'Basic'
-    tier: 'Basic'
-  }
-  identity: {
-    type: 'SystemAssigned'
-  }
+// ── RBAC: Cognitive Services User for auth-api ─────────────────
+// Allows auth-api ACA to call the Foundry Agent API via managed identity.
+// Cognitive Services User role ID: a97b65f3-24c7-4388-baec-2e87135dc908
+resource authApiRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(authApiPrincipalId)) {
+  name: guid(aiServices.id, authApiPrincipalId, 'a97b65f3-24c7-4388-baec-2e87135dc908')
+  scope: aiServices
   properties: {
-    friendlyName: 'SunnieAI'
-    hubResourceId: aiHub.id
-    publicNetworkAccess: 'Enabled'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a97b65f3-24c7-4388-baec-2e87135dc908')
+    principalId: authApiPrincipalId
+    principalType: 'ServicePrincipal'
   }
 }
 
 // ── Outputs ────────────────────────────────────────────────────
 output aiServicesEndpoint string = aiServices.properties.endpoint
 output aiServicesName string = aiServices.name
-output hubName string = aiHub.name
 output projectName string = aiProject.name
-output projectId string = aiProject.id
-output projectEndpoint string = 'https://${location}.api.azureml.ms/subscriptions/${subscription().subscriptionId}/resourceGroups/${resourceGroup().name}/providers/Microsoft.MachineLearningServices/workspaces/${aiProject.name}'
+output projectEndpoint string = 'https://${aiServicesName}.services.ai.azure.com/api/projects/${projectName}'

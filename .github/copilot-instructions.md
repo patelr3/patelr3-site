@@ -36,8 +36,7 @@ When making code changes to any service (frontend, auth-api, hello-world, nginx,
    - MCP server tests: `npm test --prefix actual-server-setup/mcp-server`
 6. **Fix any issues** — If local tests fail, debug and fix before proceeding.
 7. **Only then push** — Once the local deployment is confirmed working, commit and push to `main`.
-8. **Wait for CI/CD** — After pushing, monitor the GitHub Actions workflow (`deploy.yml`) until it completes successfully. If it fails, read the job logs, fix the issue, and push again. Keep iterating until the workflow passes.
-9. **Leave the stack running** — Do not tear down after pushing.
+8. **Leave the stack running** — Do not tear down after pushing.
 
 **Do not push to main or trigger the GitHub Action unless the local deployment works as expected.**
 
@@ -59,6 +58,7 @@ When making code changes to any service (frontend, auth-api, hello-world, nginx,
 - Environment variables come from `.env` (see `.env.example` for the template).
 - auth-api proxies deployment requests to the finance-api in patelr3/actual-server-setup.
 - auth-api also acts as an OIDC Identity Provider for ActualBudget instances (wraps Google OAuth).
+- **SunnieAI** (AI chat) is powered by Azure AI Foundry Agent Service. Auth-api proxies to Foundry using managed identity + `Cognitive Services User` RBAC. Requires `FOUNDRY_PROJECT_ENDPOINT` and `FOUNDRY_AGENT_ID` env vars (fetched from AKV in CI). See `docs/foundry-setup.md` for details.
 
 ## Service Visibility
 

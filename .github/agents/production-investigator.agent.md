@@ -71,24 +71,31 @@ Client → nginx container (:80) → routes to service containers
 
 ### SunnieAI / Azure AI Foundry
 
-SunnieAI is the AI chat feature powered by Azure AI Foundry Agent Service. Understanding its dependency chain is critical for diagnosis.
+SunnieAI is the AI chat feature powered by Azure AI Foundry Agent Service. Uses the **CognitiveServices** resource provider (not the older MachineLearningServices Hub/Project model).
+
+**Key identifiers:**
+- **AI Services account:** `patelr3-openai-1` (westus)
+- **Project:** `patelr3-prod-1`
+- **Project endpoint:** `https://patelr3-openai-1.services.ai.azure.com/api/projects/patelr3-prod-1`
+- **Agent ID:** `asst_qxOzueeredSdAyDr65qfKc4k`
+- **Token scope:** `https://cognitiveservices.azure.com/.default` (NOT `ml.azure.com`)
 
 **Dependency chain (all must be present):**
-1. Foundry infra deployed (`deploy-foundry.yml` → `foundry.bicep`) → creates AI Hub + Project + gpt-4o model in `patelr3-ai-rg` (East US 2)
-2. Agent registered (`scripts/setup-foundry-agent.py`) → creates SunnieAI agent with MCP tools
-3. `FOUNDRY_PROJECT_ENDPOINT` and `FOUNDRY_AGENT_ID` set as GitHub Secrets
-4. `deploy.yml` passes both params to Bicep deployment
-5. Auth-API ACA managed identity has "Azure AI Developer" role on Foundry project
+1. Foundry infra deployed (`deploy-foundry.yml` → `foundry.bicep`) → CognitiveServices account + project + gpt-4o model in `patelr3-ai-rg` (westus)
+2. Agent registered (`scripts/setup-foundry-agent.py` or `az rest`) → SunnieAI agent with MCP tools
+3. `foundry-project-endpoint` and `foundry-agent-id` stored in AKV (`patelr3kvl3ytczhajsp7i`)
+4. `deploy.yml` fetches from AKV and passes to Bicep deployment
+5. Auth-API ACA has system-assigned managed identity with `Cognitive Services User` role on `patelr3-openai-1`
 
 **Key files:**
 - `frontend/src/pages/SunnieAI.jsx` — Chat UI (auth-gated, route `/sunnieai`)
-- `auth-api/src/chat.js` — Foundry proxy (threads CRUD, streaming SSE runs)
+- `auth-api/src/chat.js` — Foundry proxy (threads CRUD, streaming SSE runs, token scope: `cognitiveservices.azure.com`)
 - `auth-api/src/app.js:438` — Mounts chat router at `/auth/chat` behind `requireAuth`
 - `auth-api/src/config.js:14-15` — Reads `FOUNDRY_PROJECT_ENDPOINT` and `FOUNDRY_AGENT_ID`
 - `auth-api/src/db.js:124` — `chat_threads` table (auto-migrated)
-- `deployments/foundry.bicep` — AI Hub, Project, AI Services, gpt-4o model
+- `deployments/foundry.bicep` — CognitiveServices account, project, gpt-4o model, RBAC
 - `scripts/setup-foundry-agent.py` — Agent registration (idempotent)
-- `.github/workflows/deploy-foundry.yml` — Foundry deploy workflow (manual trigger)
+- `.github/workflows/deploy-foundry.yml` — Foundry deploy workflow (manual trigger, stores in AKV)
 
 **Health check:** `GET /api/auth/chat/health` returns `{ configured: true/false }`.  
 If `configured: false`, the env vars are empty — trace back up the dependency chain.
@@ -204,17 +211,24 @@ gh run list --workflow=deploy-foundry.yml --repo patelr3/patelr3-site --limit 5
 # 2. Does the AI resource group exist?
 az group exists --name patelr3-ai-rg
 
-# 3. Are the Foundry env vars set on auth-api (non-empty)?
+# 3. Are Foundry values stored in AKV?
+az keyvault secret show --vault-name patelr3kvl3ytczhajsp7i --name foundry-project-endpoint --query value -o tsv
+az keyvault secret show --vault-name patelr3kvl3ytczhajsp7i --name foundry-agent-id --query value -o tsv
+
+# 4. Are the Foundry env vars set on auth-api (non-empty)?
 az containerapp show \
   --name patelr3-auth-api \
   --resource-group patelr3-site-rg \
   --query 'properties.template.containers[0].env[?name==`FOUNDRY_PROJECT_ENDPOINT`].value' -o tsv
 
-# 4. Check health endpoint
-curl -s https://www.arayosun.com/api/auth/chat/health
+# 5. Does auth-api have managed identity?
+az containerapp show \
+  --name patelr3-auth-api \
+  --resource-group patelr3-site-rg \
+  --query 'identity.type' -o tsv
 
-# 5. Check if deploy.yml passes Foundry params to Bicep
-grep -n 'foundryProjectEndpoint\|foundryAgentId' .github/workflows/deploy.yml
+# 6. Check health endpoint
+curl -s https://www.arayosun.com/api/auth/chat/health
 ```
 
 **ActualBudget / Finance API:**
@@ -240,9 +254,9 @@ curl -s https://www.arayosun.com/api/auth/oidc/.well-known/openid-configuration 
 | ACA secret not updating | Secrets need new revision to propagate | `az containerapp update --image` forces new revision |
 | 502 Bad Gateway | Upstream ACA not ready or wrong port | Check `targetPort` in Bicep, verify container is listening |
 | OIDC login fails for ActualBudget | Google redirect URI not registered | Add callback URL in Google Cloud Console |
-| SunnieAI "not configured" | `FOUNDRY_PROJECT_ENDPOINT`/`FOUNDRY_AGENT_ID` are empty | Run `deploy-foundry.yml`, store outputs as secrets, ensure `deploy.yml` passes them |
-| SunnieAI infra exists but still disabled | `deploy.yml` doesn't pass Foundry params to Bicep | Add `foundryProjectEndpoint` and `foundryAgentId` params to the `az deployment` command |
-| SunnieAI 403 from Foundry | Auth-API ACA managed identity lacks RBAC | Assign "Azure AI Developer" role on Foundry project to auth-api identity |
+| SunnieAI "not configured" | `FOUNDRY_PROJECT_ENDPOINT`/`FOUNDRY_AGENT_ID` are empty | Run `deploy-foundry.yml`, values stored in AKV, redeploy main site |
+| SunnieAI infra exists but still disabled | `deploy.yml` not fetching from AKV or AKV values missing | Check AKV secrets `foundry-project-endpoint` and `foundry-agent-id` exist |
+| SunnieAI 401 from Foundry | Auth-API ACA managed identity lacks RBAC or wrong token scope | Check identity enabled, `Cognitive Services User` role on `patelr3-openai-1`, token scope is `cognitiveservices.azure.com` |
 
 ### Dependency Chains
 
@@ -251,13 +265,14 @@ Some issues are caused by missing upstream dependencies. Trace the chain from bo
 **SunnieAI chain:**
 ```
 deploy-foundry.yml runs
-  → Foundry infra created (AI Hub + Project + gpt-4o)
-    → setup-foundry-agent.py registers agent
-      → FOUNDRY_PROJECT_ENDPOINT + FOUNDRY_AGENT_ID stored as GitHub Secrets
-        → deploy.yml passes both to Bicep
+  → CognitiveServices account + project + gpt-4o (westus)
+    → setup-foundry-agent.py configures agent with MCP tools
+      → foundry-project-endpoint + foundry-agent-id stored in AKV
+        → deploy.yml fetches from AKV, passes to Bicep
           → auth-api ACA receives non-empty env vars
-            → /api/auth/chat/health returns configured: true
-              → SunnieAI UI works
+            → auth-api managed identity + Cognitive Services User RBAC
+              → /api/auth/chat/health returns configured: true
+                → SunnieAI UI works
 ```
 
 **Finance API key chain:**

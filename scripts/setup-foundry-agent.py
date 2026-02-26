@@ -73,6 +73,7 @@ def main():
     parser = argparse.ArgumentParser(description="Register/update SunnieAI agent in Azure AI Foundry")
     parser.add_argument("--model", default="gpt-4o", help="Model deployment name (default: gpt-4o)")
     parser.add_argument("--mcp-url", default=None, help="MCP server URL (overrides MCP_SERVER_URL env)")
+    parser.add_argument("--agent-id", default=None, help="Existing agent ID to update (overrides state file)")
     parser.add_argument("--delete", action="store_true", help="Delete the existing agent")
     args = parser.parse_args()
 
@@ -80,9 +81,9 @@ def main():
     mcp_url = args.mcp_url or os.environ.get("MCP_SERVER_URL")
 
     if not project_endpoint:
-        print("Error: PROJECT_ENDPOINT environment variable is required")
-        print('  export PROJECT_ENDPOINT="https://<region>.api.azureml.ms/..."')
-        sys.exit(1)
+        # Default to the known CognitiveServices project endpoint
+        project_endpoint = "https://patelr3-openai-1.services.ai.azure.com/api/projects/patelr3-prod-1"
+        print(f"  Using default PROJECT_ENDPOINT: {project_endpoint}")
 
     if not mcp_url and not args.delete:
         print("Error: MCP_SERVER_URL env or --mcp-url flag is required")
@@ -94,7 +95,7 @@ def main():
     )
 
     state = load_state()
-    agent_id = state.get("agent_id")
+    agent_id = args.agent_id or state.get("agent_id")
 
     # Delete flow
     if args.delete:
@@ -112,9 +113,6 @@ def main():
         server_url=mcp_url,
         allowed_tools=MCP_TOOLS,
     )
-    mcp_tool.set_approval_mode("never")
-    mcp_tool.update_headers("Accept", "application/json, text/event-stream")
-    mcp_tool.update_headers("Content-Type", "application/json")
 
     print(f"=== SunnieAI Agent Setup ===")
     print(f"Endpoint: {project_endpoint}")

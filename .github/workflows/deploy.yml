@@ -101,6 +101,15 @@ jobs:
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Fetch Foundry config from Key Vault
+        id: foundry
+        run: |
+          KV_NAME="patelr3kvl3ytczhajsp7i"
+          ENDPOINT=$(az keyvault secret show --vault-name "$KV_NAME" --name foundry-project-endpoint --query value -o tsv 2>/dev/null || echo "")
+          AGENT_ID=$(az keyvault secret show --vault-name "$KV_NAME" --name foundry-agent-id --query value -o tsv 2>/dev/null || echo "")
+          echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
+          echo "agent-id=$AGENT_ID" >> "$GITHUB_OUTPUT"
+
       - name: Deploy Bicep
         run: |
           az deployment group create \
@@ -113,7 +122,9 @@ jobs:
               googleClientSecret="${{ secrets.GOOGLE_CLIENT_SECRET }}" \
               jwtSecret="${{ secrets.JWT_SECRET }}" \
               postgresPassword="${{ secrets.POSTGRES_PASSWORD }}" \
-              financeApiKey="${{ secrets.FINANCE_API_KEY }}"
+              financeApiKey="${{ secrets.FINANCE_API_KEY }}" \
+              foundryProjectEndpoint="${{ steps.foundry.outputs.endpoint }}" \
+              foundryAgentId="${{ steps.foundry.outputs.agent-id }}"
 
       - name: Update container app revisions
         run: |

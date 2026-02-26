@@ -2,11 +2,14 @@
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
+    "aiServicesName": {
+      "value": "patelr3-openai-1"
+    },
     "projectName": {
-      "value": "patelr3"
+      "value": "patelr3-prod-1"
     },
     "location": {
-      "value": "eastus2"
+      "value": "westus"
     },
     "modelDeployments": {
       "value": [
@@ -15,7 +18,7 @@
           "model": "gpt-4o",
           "format": "OpenAI",
           "version": "2024-08-06",
-          "skuName": "GlobalStandard",
+          "skuName": "Standard",
           "capacity": 10
         }
       ]

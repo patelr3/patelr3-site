@@ -14,7 +14,7 @@ permissions:
 
 env:
   FOUNDRY_RESOURCE_GROUP: patelr3-ai-rg
-  FOUNDRY_LOCATION: eastus2
+  FOUNDRY_LOCATION: westus
   AZURE_CLIENT_ID: e8de1562-63b2-4236-9c74-d8e3bf83e61d
   AZURE_TENANT_ID: 50d3fb80-db3c-406e-bc9d-a22a6b825219
   AZURE_SUBSCRIPTION_ID: 34154ec0-9335-4f09-a67a-bda54a403a14
@@ -53,6 +53,14 @@ jobs:
           echo "✓ Foundry infrastructure deployed"
           echo "  Project endpoint: $PROJECT_ENDPOINT"
 
+      - name: Store endpoint in Key Vault
+        run: |
+          az keyvault secret set \
+            --vault-name patelr3kvl3ytczhajsp7i \
+            --name foundry-project-endpoint \
+            --value "${{ steps.bicep.outputs.project-endpoint }}" \
+            --output none
+
   register-agent:
     name: Register SunnieAI Agent
     needs: deploy-foundry
@@ -85,6 +93,7 @@ jobs:
           echo "url=https://${MCP_FQDN}" >> "$GITHUB_OUTPUT"
 
       - name: Register/update agent
+        id: agent
         env:
           PROJECT_ENDPOINT: ${{ needs.deploy-foundry.outputs.project-endpoint }}
           MCP_SERVER_URL: ${{ steps.mcp.outputs.url }}
@@ -92,3 +101,13 @@ jobs:
           python scripts/setup-foundry-agent.py \
             --model "${{ github.event.inputs.model || 'gpt-4o' }}" \
             --mcp-url "${{ steps.mcp.outputs.url }}"
+
+      - name: Store agent ID in Key Vault
+        run: |
+          AGENT_ID=$(python3 -c "import json; print(json.load(open('scripts/.foundry-agent-state.json'))['agent_id'])")
+          az keyvault secret set \
+            --vault-name patelr3kvl3ytczhajsp7i \
+            --name foundry-agent-id \
+            --value "$AGENT_ID" \
+            --output none
+          echo "✓ Agent ID stored in Key Vault: $AGENT_ID"

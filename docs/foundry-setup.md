@@ -4,11 +4,25 @@
 
 SunnieAI is a chat interface on patelr3-site that connects to Azure AI Foundry Agent Service. Users chat with an AI assistant that can access their Actual Budget data through MCP tools, with toggleable data source access.
 
+## Architecture
+
+The Foundry resources use the **CognitiveServices** resource provider (newer architecture — not the older MachineLearningServices Hub/Project model). The AI Services account and project were created manually via the Azure AI Foundry portal, and are now managed idempotently via `deployments/foundry.bicep`.
+
+| Resource | Type | Name | Location |
+|----------|------|------|----------|
+| AI Services | `Microsoft.CognitiveServices/accounts` | `patelr3-openai-1` | westus |
+| AI Project | `accounts/projects` | `patelr3-prod-1` | westus |
+| Model deployment | `accounts/deployments` | `gpt-4o` (Standard, 2024-08-06) | westus |
+| Agent | Foundry Agent | `sunnieai-assistant` (`asst_qxOzueeredSdAyDr65qfKc4k`) | — |
+
+**Resource Group:** `patelr3-ai-rg`  
+**Project Endpoint:** `https://patelr3-openai-1.services.ai.azure.com/api/projects/patelr3-prod-1`
+
 ## Prerequisites
 
 1. **MCP server deployed** — `patelr3-mcp-server` ACA must be running
 2. **Azure subscription** — with permissions to create AI Services resources
-3. **Python 3.9+** — for agent registration script
+3. **Python 3.9+** — for agent registration script (optional — can use `az rest` directly)
 
 ## Deployment
 
@@ -17,14 +31,28 @@ SunnieAI is a chat interface on patelr3-site that connects to Azure AI Foundry A
 Trigger the **"Deploy AI Foundry"** workflow from the Actions tab:
 1. Go to **Actions** → **Deploy AI Foundry** → **Run workflow**
 2. Select model (default: `gpt-4o`)
-3. Workflow deploys Bicep infra + registers agent
+3. Workflow deploys Bicep infra, registers agent, and stores outputs in AKV
+
+The `deploy.yml` workflow (main site deploy) automatically fetches `foundry-project-endpoint` and `foundry-agent-id` from AKV and passes them to auth-api.
 
 ### Local
 
 ```bash
-pip install azure-ai-projects azure-ai-agents azure-identity
+# Option 1: deploy-foundry.sh (deploys infra + registers agent)
 az login
 ./scripts/deploy-foundry.sh
+
+# Option 2: Manual steps
+az deployment group create \
+  --resource-group patelr3-ai-rg \
+  --template-file deployments/foundry.bicep \
+  --parameters deployments/foundry-parameters.json
+
+# Then register/update agent:
+export PROJECT_ENDPOINT="https://patelr3-openai-1.services.ai.azure.com/api/projects/patelr3-prod-1"
+export MCP_SERVER_URL="https://patelr3-mcp-server.gentlebay-ad6f417d.westus2.azurecontainerapps.io"
+pip install azure-ai-projects azure-ai-agents azure-identity
+python scripts/setup-foundry-agent.py
 ```
 
 ### What gets deployed (Bicep)
@@ -33,18 +61,16 @@ az login
 |----------|------|---------|
 | AI Services | `Microsoft.CognitiveServices/accounts` | OpenAI model hosting |
 | Model deployment | `accounts/deployments` | gpt-4o (configurable) |
-| AI Hub | `MachineLearningServices/workspaces` (kind: Hub) | Governance layer |
-| AI Project | `MachineLearningServices/workspaces` (kind: Project) | SunnieAI workspace |
-| Storage Account | `Microsoft.Storage` | Required by Hub |
-| Key Vault | `Microsoft.KeyVault` | Required by Hub |
+| AI Project | `accounts/projects` | SunnieAI workspace |
+| RBAC role assignment | `Microsoft.Authorization/roleAssignments` | Cognitive Services User for auth-api |
 
 ### After deployment
 
-Set these environment variables in auth-api (ACA or `.env`):
-```
-FOUNDRY_PROJECT_ENDPOINT=<from Bicep output>
-FOUNDRY_AGENT_ID=<from setup-foundry-agent.py output>
-```
+Foundry values are automatically stored in AKV (`patelr3kvl3ytczhajsp7i`):
+- `foundry-project-endpoint` — project API URL
+- `foundry-agent-id` — registered agent ID
+
+The `deploy.yml` workflow fetches these from AKV and passes them to auth-api as env vars.
 
 ## Re-registration
 

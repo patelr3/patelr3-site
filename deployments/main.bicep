@@ -107,6 +107,7 @@ module authApi 'modules/container-app.bicep' = {
     targetPort: 8000
     external: true
     minReplicas: 1
+    enableSystemIdentity: true
     env: [
       { name: 'GOOGLE_CLIENT_ID', secretRef: 'google-client-id' }
       { name: 'GOOGLE_CLIENT_SECRET', secretRef: 'google-client-secret' }
