@@ -6,7 +6,7 @@
 #
 # Prerequisites:
 #   - az login (authenticated)
-#   - pip install azure-ai-projects azure-ai-agents azure-identity
+#   - pip install "azure-ai-projects>=2.0.0b4" azure-identity
 set -euo pipefail
 
 RESOURCE_GROUP="${FOUNDRY_RESOURCE_GROUP:-patelr3-ai-rg}"

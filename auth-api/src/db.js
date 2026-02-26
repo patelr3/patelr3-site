@@ -119,16 +119,33 @@ export async function initDb() {
     )
   `);
 
-  // Chat threads (user → Foundry thread mapping)
+  // Chat threads (user conversations)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS chat_threads (
       id              SERIAL PRIMARY KEY,
       user_id         INT REFERENCES users(id) ON DELETE CASCADE,
-      foundry_thread_id VARCHAR(255) NOT NULL,
+      foundry_thread_id VARCHAR(255) NOT NULL DEFAULT '',
       title           VARCHAR(255) DEFAULT 'New conversation',
+      summary         TEXT DEFAULT NULL,
       created_at      TIMESTAMPTZ DEFAULT NOW(),
       updated_at      TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+
+  // Chat messages (local message storage for summarization)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id              SERIAL PRIMARY KEY,
+      thread_id       INT REFERENCES chat_threads(id) ON DELETE CASCADE,
+      role            VARCHAR(20) NOT NULL,
+      content         TEXT NOT NULL,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Add summary column if missing (migration for existing DBs)
+  await pool.query(`
+    ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS summary TEXT DEFAULT NULL
   `);
 
   // Seed a test user in local dev only (no AUTH_API_URL set)
@@ -378,6 +395,16 @@ export async function consumeOidcAuthCode(code) {
 
 // ── Chat thread queries ────────────────────────────────────────
 
+export async function createThread(userId, title) {
+  const { rows } = await pool.query(
+    `INSERT INTO chat_threads (user_id, foundry_thread_id, title)
+     VALUES ($1, '', $2) RETURNING *`,
+    [userId, title]
+  );
+  return rows[0];
+}
+
+// Keep for backward compat — delegates to createThread
 export async function getOrCreateThread(userId, foundryThreadId, title) {
   const { rows } = await pool.query(
     `INSERT INTO chat_threads (user_id, foundry_thread_id, title)
@@ -396,12 +423,75 @@ export async function getUserThreads(userId) {
   return rows;
 }
 
-export async function deleteThread(userId, foundryThreadId) {
-  const { rows } = await pool.query(
+export async function deleteThread(userId, threadId) {
+  // Try by foundry_thread_id first (legacy), then by id
+  let { rows } = await pool.query(
     `DELETE FROM chat_threads WHERE user_id = $1 AND foundry_thread_id = $2 RETURNING *`,
-    [userId, foundryThreadId]
+    [userId, threadId]
+  );
+  if (!rows[0] && !isNaN(threadId)) {
+    ({ rows } = await pool.query(
+      `DELETE FROM chat_threads WHERE user_id = $1 AND id = $2 RETURNING *`,
+      [userId, Number(threadId)]
+    ));
+  }
+  return rows[0] || null;
+}
+
+export async function getThreadById(threadId) {
+  const { rows } = await pool.query(
+    `SELECT * FROM chat_threads WHERE id = $1`,
+    [threadId]
   );
   return rows[0] || null;
+}
+
+// ── Chat message queries ───────────────────────────────────────
+
+export async function addChatMessage(threadId, role, content) {
+  const { rows } = await pool.query(
+    `INSERT INTO chat_messages (thread_id, role, content)
+     VALUES ($1, $2, $3) RETURNING *`,
+    [threadId, role, content]
+  );
+  // Touch updated_at on the thread
+  await pool.query(
+    `UPDATE chat_threads SET updated_at = NOW() WHERE id = $1`,
+    [threadId]
+  );
+  return rows[0];
+}
+
+export async function getChatMessages(threadId) {
+  const { rows } = await pool.query(
+    `SELECT id, role, content, created_at FROM chat_messages
+     WHERE thread_id = $1 ORDER BY created_at ASC`,
+    [threadId]
+  );
+  return rows;
+}
+
+export async function getChatMessageCount(threadId) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM chat_messages WHERE thread_id = $1`,
+    [threadId]
+  );
+  return rows[0].count;
+}
+
+export async function updateThreadSummary(threadId, summary) {
+  await pool.query(
+    `UPDATE chat_threads SET summary = $2, updated_at = NOW() WHERE id = $1`,
+    [threadId, summary]
+  );
+}
+
+export async function getThreadSummary(threadId) {
+  const { rows } = await pool.query(
+    `SELECT summary FROM chat_threads WHERE id = $1`,
+    [threadId]
+  );
+  return rows[0]?.summary || null;
 }
 
 export default pool;

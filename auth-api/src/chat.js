@@ -1,18 +1,25 @@
 // SunnieAI chat proxy — forwards chat requests to Azure AI Foundry Agent Service.
-// Auth-api authenticates the user (JWT cookie) and proxies to Foundry using
-// Azure AD credentials, passing the user's JWT as an MCP tool header.
+// Uses the new Foundry Responses API (not classic Assistants/Threads API).
+// Manages conversation history locally with rolling summarization.
 import { Router } from "express";
 import config from "./config.js";
-import { getOrCreateThread, getUserThreads, deleteThread } from "./db.js";
+import {
+  createThread, getUserThreads, deleteThread,
+  addChatMessage, getChatMessages, getChatMessageCount,
+  updateThreadSummary, getThreadSummary,
+} from "./db.js";
 
 const router = Router();
 
 // Azure AI Foundry config
 const FOUNDRY_ENDPOINT = config.foundryProjectEndpoint;
-const FOUNDRY_AGENT_ID = config.foundryAgentId;
+const FOUNDRY_AGENT_NAME = config.foundryAgentName;
+
+// Summarization thresholds
+const SUMMARY_THRESHOLD = 10;  // summarize when > 10 messages
+const RECENT_MESSAGES_KEEP = 6; // keep last 6 messages verbatim
 
 async function getAzureToken() {
-  // Use managed identity in ACA, DefaultAzureCredential locally
   const { DefaultAzureCredential } = await import("@azure/identity");
   const credential = new DefaultAzureCredential();
   const token = await credential.getToken("https://ai.azure.com/.default");
@@ -36,9 +43,10 @@ async function foundryFetch(path, opts = {}) {
 // ── Health check ───────────────────────────────────────────────
 router.get("/health", (_req, res) => {
   res.json({
-    configured: !!(FOUNDRY_ENDPOINT && FOUNDRY_AGENT_ID),
+    configured: !!(FOUNDRY_ENDPOINT && FOUNDRY_AGENT_NAME),
     endpoint: FOUNDRY_ENDPOINT ? "set" : "missing",
-    agentId: FOUNDRY_AGENT_ID ? "set" : "missing",
+    agentName: FOUNDRY_AGENT_NAME || "missing",
+    api: "responses",
   });
 });
 
@@ -55,33 +63,12 @@ router.get("/threads", async (req, res) => {
 
 // ── Create a new thread ────────────────────────────────────────
 router.post("/threads", async (req, res) => {
-  if (!FOUNDRY_ENDPOINT) {
-    return res.status(503).json({ error: "AI service not configured" });
-  }
-
   try {
     const { title } = req.body;
-    // Create thread in Foundry
-    const foundryRes = await foundryFetch("/threads?api-version=v1", {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-
-    if (!foundryRes.ok) {
-      const err = await foundryRes.text();
-      console.error("[chat] Foundry thread creation failed:", err);
-      return res.status(502).json({ error: "Failed to create AI thread" });
-    }
-
-    const foundryThread = await foundryRes.json();
-
-    // Store mapping in our DB
-    const thread = await getOrCreateThread(
+    const thread = await createThread(
       Number(req.jwtUser.sub),
-      foundryThread.id,
       title || "New conversation",
     );
-
     res.status(201).json(thread);
   } catch (err) {
     console.error("[chat] Thread creation error:", err);
@@ -97,14 +84,6 @@ router.delete("/threads/:threadId", async (req, res) => {
       req.params.threadId,
     );
     if (!deleted) return res.status(404).json({ error: "Thread not found" });
-
-    // Also delete in Foundry (best effort)
-    if (FOUNDRY_ENDPOINT) {
-      foundryFetch(`/threads/${req.params.threadId}?api-version=v1`, {
-        method: "DELETE",
-      }).catch(() => {});
-    }
-
     res.json({ success: true });
   } catch (err) {
     console.error("[chat] Thread deletion error:", err);
@@ -114,30 +93,100 @@ router.delete("/threads/:threadId", async (req, res) => {
 
 // ── Get messages for a thread ──────────────────────────────────
 router.get("/threads/:threadId/messages", async (req, res) => {
-  if (!FOUNDRY_ENDPOINT) {
-    return res.status(503).json({ error: "AI service not configured" });
-  }
-
   try {
-    const foundryRes = await foundryFetch(
-      `/threads/${req.params.threadId}/messages?api-version=v1`,
-    );
-
-    if (!foundryRes.ok) {
-      return res.status(foundryRes.status).json({ error: "Failed to get messages" });
-    }
-
-    const data = await foundryRes.json();
-    res.json(data);
+    const messages = await getChatMessages(Number(req.params.threadId));
+    // Return in the same format the frontend expects
+    const data = messages.map(m => ({
+      role: m.role,
+      content: m.content,
+    }));
+    res.json({ data });
   } catch (err) {
     console.error("[chat] Get messages error:", err);
     res.status(500).json({ error: "Failed to get messages" });
   }
 });
 
+// Build the input array for the Responses API with summarization
+async function buildInput(threadId, newUserContent) {
+  const messages = await getChatMessages(threadId);
+  const summary = await getThreadSummary(threadId);
+  const input = [];
+
+  if (summary && messages.length > RECENT_MESSAGES_KEEP) {
+    // Prepend summary of older context
+    input.push({
+      role: "user",
+      content: `[Context from earlier in this conversation: ${summary}]`,
+    });
+    // Only include recent messages
+    const recent = messages.slice(-RECENT_MESSAGES_KEEP);
+    for (const m of recent) {
+      input.push({ role: m.role, content: m.content });
+    }
+  } else {
+    // Send all messages
+    for (const m of messages) {
+      input.push({ role: m.role, content: m.content });
+    }
+  }
+
+  // Add the new user message
+  input.push({ role: "user", content: newUserContent });
+  return input;
+}
+
+// Generate a summary of older messages (background, non-blocking)
+async function maybeSummarize(threadId) {
+  try {
+    const count = await getChatMessageCount(threadId);
+    if (count <= SUMMARY_THRESHOLD) return;
+
+    const messages = await getChatMessages(threadId);
+    // Summarize all but the last RECENT_MESSAGES_KEEP messages
+    const toSummarize = messages.slice(0, -RECENT_MESSAGES_KEEP);
+    if (toSummarize.length < 4) return; // not enough to summarize
+
+    const summaryPrompt = toSummarize
+      .map(m => `${m.role}: ${m.content}`)
+      .join("\n");
+
+    const summaryRes = await foundryFetch(
+      "/openai/responses?api-version=2025-05-01-preview",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          input: [
+            {
+              role: "user",
+              content: `Summarize this conversation in 2-3 concise sentences, preserving key facts and decisions:\n\n${summaryPrompt}`,
+            },
+          ],
+          model: "gpt-4.1",
+          store: false,
+          max_output_tokens: 200,
+        }),
+      },
+    );
+
+    if (summaryRes.ok) {
+      const data = await summaryRes.json();
+      const summaryText =
+        data?.output?.[0]?.content?.[0]?.text ||
+        data?.output_text ||
+        "";
+      if (summaryText) {
+        await updateThreadSummary(threadId, summaryText);
+      }
+    }
+  } catch (err) {
+    console.error("[chat] Summarization failed (non-critical):", err.message);
+  }
+}
+
 // ── Send message and run agent (streaming) ─────────────────────
 router.post("/threads/:threadId/messages", async (req, res) => {
-  if (!FOUNDRY_ENDPOINT || !FOUNDRY_AGENT_ID) {
+  if (!FOUNDRY_ENDPOINT || !FOUNDRY_AGENT_NAME) {
     return res.status(503).json({ error: "AI service not configured" });
   }
 
@@ -146,58 +195,45 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     return res.status(400).json({ error: "content is required" });
   }
 
+  const threadId = Number(req.params.threadId);
+
   try {
-    // 1. Add user message to thread
-    const msgRes = await foundryFetch(
-      `/threads/${req.params.threadId}/messages?api-version=v1`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          role: "user",
-          content,
-        }),
-      },
-    );
+    // 1. Store user message in DB
+    await addChatMessage(threadId, "user", content);
 
-    if (!msgRes.ok) {
-      const err = await msgRes.text();
-      console.error("[chat] Add message failed:", err);
-      return res.status(502).json({ error: "Failed to add message" });
-    }
+    // 2. Build input with summarization
+    const input = await buildInput(threadId, content);
 
-    // 2. Build MCP tool_resources with user JWT for authentication
+    // 3. Create response (streaming) via Responses API
     const userJwt = req.cookies.access_token;
-    const toolResources = {
-      mcp: [
-        {
-          server_label: "actualbudget",
-          headers: {
-            Authorization: `Bearer ${userJwt}`,
-          },
-          require_approval: "never",
-        },
-      ],
+    const responseBody = {
+      input,
+      model: "gpt-4.1",
+      stream: true,
+      store: false,
+      max_output_tokens: 4096,
     };
 
-    // 3. Create run (streaming)
+    // Add agent reference if configured
+    if (FOUNDRY_AGENT_NAME) {
+      responseBody.agent_reference = {
+        name: FOUNDRY_AGENT_NAME,
+        type: "agent_reference",
+      };
+    }
+
     const runRes = await foundryFetch(
-      `/threads/${req.params.threadId}/runs?api-version=v1`,
+      "/openai/responses?api-version=2025-05-01-preview",
       {
         method: "POST",
         headers: { Accept: "text/event-stream" },
-        body: JSON.stringify({
-          assistant_id: FOUNDRY_AGENT_ID,
-          stream: true,
-          tool_resources: toolResources,
-          truncation_strategy: { type: "auto" },
-          max_completion_tokens: 4096,
-        }),
+        body: JSON.stringify(responseBody),
       },
     );
 
     if (!runRes.ok) {
       const err = await runRes.text();
-      console.error("[chat] Run creation failed:", err);
+      console.error("[chat] Response creation failed:", err);
       return res.status(502).json({ error: "Failed to run agent" });
     }
 
@@ -209,6 +245,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
     const reader = runRes.body.getReader();
     const decoder = new TextDecoder();
+    let assistantText = "";
 
     try {
       const STREAM_TIMEOUT_MS = 120_000;
@@ -227,12 +264,44 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         const { done, value } = result;
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
+
+        // Parse SSE to collect assistant text for DB storage
+        for (const line of chunk.split("\n")) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data === "[DONE]") continue;
+            try {
+              const event = JSON.parse(data);
+              // New Responses API format
+              if (event.type === "response.output_text.delta" && event.delta) {
+                assistantText += event.delta;
+              }
+              // Classic format fallback
+              const classicDelta = event?.delta?.content?.[0]?.text?.value;
+              if (classicDelta) {
+                assistantText += classicDelta;
+              }
+            } catch {
+              // skip unparseable SSE lines
+            }
+          }
+        }
+
         res.write(chunk);
       }
     } catch (streamErr) {
       console.error("[chat] Stream error:", streamErr);
     } finally {
       res.end();
+    }
+
+    // 5. Store assistant response in DB (async, non-blocking)
+    if (assistantText) {
+      addChatMessage(threadId, "assistant", assistantText).catch(err =>
+        console.error("[chat] Failed to store assistant message:", err),
+      );
+      // Trigger summarization in background
+      maybeSummarize(threadId).catch(() => {});
     }
   } catch (err) {
     console.error("[chat] Message/run error:", err);

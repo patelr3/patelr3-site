@@ -371,7 +371,7 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"title":"CI test thread"}' \
             -b "$COOKIE_JAR")
-          THREAD_ID=$(echo "$THREAD_BODY" | grep -o '"foundry_thread_id":"[^"]*"' | cut -d'"' -f4)
+          THREAD_ID=$(echo "$THREAD_BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
           if [ -n "$THREAD_ID" ]; then
             pass "POST /auth/chat/threads creates thread ($THREAD_ID)"
           else

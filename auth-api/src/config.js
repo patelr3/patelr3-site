@@ -12,7 +12,8 @@ const config = {
   oidcClientSecret: process.env.OIDC_CLIENT_SECRET || process.env.JWT_SECRET || "change-me",
   // Azure AI Foundry (SunnieAI chat)
   foundryProjectEndpoint: process.env.FOUNDRY_PROJECT_ENDPOINT || "",
-  foundryAgentId: process.env.FOUNDRY_AGENT_ID || "",
+  foundryAgentName: process.env.FOUNDRY_AGENT_NAME || "sunnieai",
+  foundryAgentId: process.env.FOUNDRY_AGENT_ID || "",  // deprecated, kept for fallback
   jwtExpiresIn: "24h",
   port: 8000,
 };

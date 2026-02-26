@@ -7,10 +7,6 @@ on:
         description: 'Model deployment name'
         default: 'gpt-4.1'
         required: false
-      recreate:
-        description: 'Force creation of a new agent'
-        type: boolean
-        default: false
 
 permissions:
   id-token: write
@@ -85,7 +81,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install azure-identity
+        run: pip install "azure-ai-projects>=2.0.0b4" azure-identity
 
       - name: Get MCP server URL
         id: mcp
@@ -104,15 +100,14 @@ jobs:
         run: |
           python scripts/setup-foundry-agent.py \
             --model "${{ github.event.inputs.model || 'gpt-4.1' }}" \
-            --mcp-url "${{ steps.mcp.outputs.url }}" \
-            ${{ github.event.inputs.recreate == 'true' && '--recreate' || '' }}
+            --mcp-url "${{ steps.mcp.outputs.url }}"
 
-      - name: Store agent ID in Key Vault
+      - name: Store agent name in Key Vault
         run: |
-          AGENT_ID=$(python3 -c "import json; print(json.load(open('scripts/.foundry-agent-state.json'))['agent_id'])")
+          AGENT_NAME=$(python3 -c "import json; print(json.load(open('scripts/.foundry-agent-state.json'))['agent_name'])")
           az keyvault secret set \
             --vault-name patelr3kvl3ytczhajsp7i \
-            --name foundry-agent-id \
-            --value "$AGENT_ID" \
+            --name foundry-agent-name \
+            --value "$AGENT_NAME" \
             --output none
-          echo "✓ Agent ID stored in Key Vault: $AGENT_ID"
+          echo "✓ Agent name stored in Key Vault: $AGENT_NAME"

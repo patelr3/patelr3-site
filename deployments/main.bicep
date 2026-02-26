@@ -118,6 +118,7 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'FINANCE_API_URL', value: 'https://finance-api.${financeCaeDomain}' }
       { name: 'FINANCE_API_KEY', secretRef: 'finance-api-key' }
       { name: 'FOUNDRY_PROJECT_ENDPOINT', secretRef: 'foundry-project-endpoint' }
+      { name: 'FOUNDRY_AGENT_NAME', secretRef: 'foundry-agent-name' }
       { name: 'FOUNDRY_AGENT_ID', secretRef: 'foundry-agent-id' }
     ]
     secrets: [
@@ -127,6 +128,7 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'database-url', keyVaultUrl: '${kvSecretsUrl}/database-url', identity: kvReaderIdentity.id }
       { name: 'finance-api-key', keyVaultUrl: '${kvSecretsUrl}/finance-api-key', identity: kvReaderIdentity.id }
       { name: 'foundry-project-endpoint', keyVaultUrl: '${kvSecretsUrl}/foundry-project-endpoint', identity: kvReaderIdentity.id }
+      { name: 'foundry-agent-name', keyVaultUrl: '${kvSecretsUrl}/foundry-agent-name', identity: kvReaderIdentity.id }
       { name: 'foundry-agent-id', keyVaultUrl: '${kvSecretsUrl}/foundry-agent-id', identity: kvReaderIdentity.id }
     ]
   }

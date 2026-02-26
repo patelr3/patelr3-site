@@ -111,9 +111,8 @@ export default function SunnieAI({ user }) {
         const msgs = (data.data || [])
           .map((m) => ({
             role: m.role,
-            content: m.content?.[0]?.text?.value || m.content || "",
-          }))
-          .reverse();
+            content: m.content || "",
+          }));
         setMessages(msgs);
       })
       .catch(() => {});
@@ -131,7 +130,7 @@ export default function SunnieAI({ user }) {
       const thread = await res.json();
       setThreads((prev) => [thread, ...prev]);
       skipMessageFetchRef.current = true;
-      setActiveThread(thread.foundry_thread_id);
+      setActiveThread(thread.id);
       setMessages([]);
       setLoading(false);
       return thread;
@@ -146,8 +145,8 @@ export default function SunnieAI({ user }) {
       method: "DELETE",
       credentials: "include",
     });
-    setThreads((prev) => prev.filter((t) => t.foundry_thread_id !== threadId));
-    if (activeThread === threadId) {
+    setThreads((prev) => prev.filter((t) => String(t.id) !== String(threadId)));
+    if (String(activeThread) === String(threadId)) {
       setActiveThread(null);
       setMessages([]);
     }
@@ -159,7 +158,7 @@ export default function SunnieAI({ user }) {
     if (!threadId) {
       const thread = await createThread();
       if (!thread) return;
-      threadId = thread.foundry_thread_id;
+      threadId = thread.id;
     }
 
     const userMsg = input.trim();
@@ -235,8 +234,9 @@ export default function SunnieAI({ user }) {
             if (data === "[DONE]") continue;
             try {
               const event = JSON.parse(data);
-              // Extract text delta from various event shapes
+              // Extract text delta — new Responses API format + classic fallback
               const delta =
+                (event.type === "response.output_text.delta" && event.delta) ||
                 event?.delta?.content?.[0]?.text?.value ||
                 event?.delta?.content ||
                 "";
@@ -342,18 +342,18 @@ export default function SunnieAI({ user }) {
           </button>
           {threads.map((t) => (
             <div
-              key={t.foundry_thread_id}
-              className={`sunnieai-thread ${activeThread === t.foundry_thread_id ? "active" : ""}`}
+              key={t.id}
+              className={`sunnieai-thread ${activeThread === t.id ? "active" : ""}`}
             >
               <span
                 className="sunnieai-thread-title"
-                onClick={() => setActiveThread(t.foundry_thread_id)}
+                onClick={() => setActiveThread(t.id)}
               >
                 {t.title}
               </span>
               <button
                 className="sunnieai-thread-delete"
-                onClick={() => deleteThreadHandler(t.foundry_thread_id)}
+                onClick={() => deleteThreadHandler(t.id)}
                 title="Delete"
               >
                 ×
