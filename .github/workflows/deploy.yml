@@ -257,6 +257,30 @@ jobs:
           CHAT_AGENT=$(echo "$CHAT_BODY" | grep -o '"agentId":"set"' || echo "")
           if [ -n "$CHAT_AGENT" ]; then pass "Foundry agent ID is set"; else fail "Foundry agent ID" "missing"; fi
 
+          # Create a thread and send a message
+          THREAD_BODY=$(curl -s -X POST "$FRONTEND_URL/api/auth/chat/threads" \
+            -H "Content-Type: application/json" \
+            -d '{"title":"CI test thread"}' \
+            -b "$COOKIE_JAR")
+          THREAD_ID=$(echo "$THREAD_BODY" | grep -o '"foundry_thread_id":"[^"]*"' | cut -d'"' -f4)
+          if [ -n "$THREAD_ID" ]; then
+            pass "POST /auth/chat/threads creates thread ($THREAD_ID)"
+          else
+            fail "POST /auth/chat/threads" "no thread ID: $THREAD_BODY"
+          fi
+
+          if [ -n "$THREAD_ID" ]; then
+            MSG_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+              -X POST "$FRONTEND_URL/api/auth/chat/threads/$THREAD_ID/messages" \
+              -H "Content-Type: application/json" \
+              -d '{"content":"Hello"}' \
+              -b "$COOKIE_JAR")
+            if [ "$MSG_STATUS" = "200" ]; then pass "POST message returns 200 (streaming)"; else fail "POST message" "expected 200, got $MSG_STATUS"; fi
+
+            # Clean up test thread
+            curl -s -o /dev/null -X DELETE "$FRONTEND_URL/api/auth/chat/threads/$THREAD_ID" -b "$COOKIE_JAR" || true
+          fi
+
           # ── Cleanup ────────────────────────────────────────────
           curl -s -o /dev/null -b "$COOKIE_JAR" "$FRONTEND_URL/api/auth/logout" || true
           rm -f "$COOKIE_JAR"

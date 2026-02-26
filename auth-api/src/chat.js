@@ -141,7 +141,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     return res.status(503).json({ error: "AI service not configured" });
   }
 
-  const { content, mcpServers } = req.body;
+  const { content } = req.body;
   if (!content) {
     return res.status(400).json({ error: "content is required" });
   }
@@ -165,21 +165,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
       return res.status(502).json({ error: "Failed to add message" });
     }
 
-    // 2. Build tool_resources with user JWT as MCP header
-    const userJwt = req.cookies.access_token;
-    const toolResources = {};
-
-    // Only include enabled MCP servers
-    const enabledServers = mcpServers || ["actualbudget"];
-    if (enabledServers.includes("actualbudget")) {
-      toolResources.actualbudget = {
-        headers: {
-          Authorization: `Bearer ${userJwt}`,
-        },
-      };
-    }
-
-    // 3. Create run (streaming)
+    // 2. Create run (streaming)
     const runRes = await foundryFetch(
       `/threads/${req.params.threadId}/runs?api-version=v1`,
       {
@@ -188,7 +174,6 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         body: JSON.stringify({
           assistant_id: FOUNDRY_AGENT_ID,
           stream: true,
-          tool_resources: toolResources,
         }),
       },
     );
