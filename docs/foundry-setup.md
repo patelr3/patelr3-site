@@ -2,7 +2,7 @@
 
 ## Overview
 
-SunnieAI is a chat interface on patelr3-site that connects to Azure AI Foundry Agent Service (new Foundry experience). Uses the **Responses API** (not classic Assistants API) with client-managed conversation history and rolling summarization to keep context efficient. Users chat with an AI assistant that can access their Actual Budget data through MCP tools configured as **HostedMCPTool**.
+SunnieAI is a chat interface on patelr3-site that connects to Azure AI Foundry Agent Service (new Foundry experience). Uses the **Responses API** (not classic Assistants API) with client-managed conversation history and rolling summarization to keep context efficient. Users chat with an AI assistant that can access their Actual Budget data through MCP tools configured as **MCPTool**.
 
 ## Architecture
 
@@ -26,7 +26,7 @@ The Foundry resources use the **CognitiveServices** resource provider. The AI Se
 | Chat API | Responses API (`POST /responses`) — single call per message |
 | Context | Client-managed with rolling summarization |
 | Streaming | SSE with `response.output_text.delta` events |
-| MCP tools | `HostedMCPTool` via `azure-ai-projects` SDK |
+| MCP tools | `MCPTool` via `azure-ai-projects` SDK |
 
 ### Conversation Summarization
 
@@ -89,7 +89,24 @@ The `deploy.yml` workflow fetches these from AKV and passes them to auth-api as 
 
 The script uses `create_version()` — each run creates a new version of the agent.
 
-## Authentication Flow
+## Authentication
+
+### Token Scope
+
+The Foundry v1 Responses API (`/openai/v1/responses`) requires `cognitiveservices.azure.com/.default` token scope. The ACA managed identity must have **Cognitive Services User** role on the AI Services resource.
+
+**Important:** The GitHub Actions SP cannot assign RBAC roles (lacks `roleAssignments/write`). This role must be assigned manually:
+
+```bash
+az role assignment create \
+  --assignee <auth-api-managed-identity-principal-id> \
+  --role "Cognitive Services User" \
+  --scope /subscriptions/34154ec0-9335-4f09-a67a-bda54a403a14/resourceGroups/patelr3-ai-rg/providers/Microsoft.CognitiveServices/accounts/patelr3-openai-1
+```
+
+Current auth-api principal ID: `509dcfdb-8624-4e86-9816-e328a1e1ee85`
+
+### Auth Flow
 
 Auth-api builds the input array with conversation context (summarized if long) and calls the Responses API with `agent_reference`. The MCP server authenticates via the user's JWT passed at agent setup time.
 
@@ -110,7 +127,7 @@ Auth-api builds the input array with conversation context (summarized if long) a
 Auth-api sends a single Responses API call per user message:
 
 ```javascript
-const response = await foundryFetch('/openai/responses?api-version=2025-05-01-preview', {
+const response = await foundryFetch('/responses', {
   method: 'POST',
   body: JSON.stringify({
     input: [
@@ -119,7 +136,7 @@ const response = await foundryFetch('/openai/responses?api-version=2025-05-01-pr
     model: 'gpt-4.1',
     stream: true,
     store: false,
-    agent_reference: { name: 'sunnieai', type: 'agent_reference' },
+    agent: { name: 'sunnieai', version: '1', type: 'agent_reference' },
   }),
 });
 ```
@@ -142,4 +159,5 @@ The agent will automatically:
 | NetworkAcls required | Add `networkAcls: { defaultAction: 'Allow' }` to CognitiveServices Bicep properties |
 | PermissionDenied on agent create | SP needs `Cognitive Services User` role (not just Azure AI Developer) |
 | Agent in classic only | Use `create_version()` via `azure-ai-projects>=2.0.0b4`, not `POST /assistants` |
+| 401 "audience incorrect" | ACA identity needs `Cognitive Services User` role — assign manually (see Authentication section) |
 | Context too large | Conversation summarization kicks in at >10 messages; reduce SUMMARY_THRESHOLD if needed |
