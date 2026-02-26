@@ -61,29 +61,10 @@ module keyVault 'modules/keyvault.bicep' = {
 }
 
 // ── User-Assigned Managed Identity for AKV access ──────────────
-// Shared by all ACAs so they read secrets directly from Key Vault.
-// Avoids chicken-and-egg issues with system-assigned identity.
-resource kvReaderIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+// Pre-created identity with Key Vault Secrets User role on the vault.
+// All ACAs share this identity to read secrets directly from AKV.
+resource kvReaderIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
   name: '${projectName}-kv-reader'
-  location: location
-  tags: tags
-}
-
-// Reference the KV resource for role assignment scope
-resource kvRef 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
-  name: kvName
-  dependsOn: [keyVault]
-}
-
-// Grant Key Vault Secrets User role to the UAMI
-resource kvSecretsUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(kvRef.id, kvReaderIdentity.id, '4633458b-17de-408a-b874-0445c86b69e6')
-  scope: kvRef
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
-    principalId: kvReaderIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
 }
 
 // ── Container Apps Environment ─────────────────────────────────
@@ -113,7 +94,6 @@ module postgres 'modules/postgres.bicep' = {
 // ── Auth API Container App ─────────────────────────────────────
 module authApi 'modules/container-app.bicep' = {
   name: 'auth-api'
-  dependsOn: [kvSecretsUserRole]
   params: {
     name: '${projectName}-auth-api'
     location: location
@@ -155,7 +135,6 @@ module authApi 'modules/container-app.bicep' = {
 // ── Hello-World Container App ──────────────────────────────────
 module helloWorld 'modules/container-app.bicep' = {
   name: 'hello-world'
-  dependsOn: [kvSecretsUserRole]
   params: {
     name: '${projectName}-hello-world'
     location: location
@@ -181,7 +160,6 @@ module helloWorld 'modules/container-app.bicep' = {
 // ── Hello-World-Restricted Container App ───────────────────────
 module helloWorldRestricted 'modules/container-app.bicep' = {
   name: 'hello-world-restricted'
-  dependsOn: [kvSecretsUserRole]
   params: {
     name: '${projectName}-hello-world-restricted'
     location: location
@@ -207,7 +185,6 @@ module helloWorldRestricted 'modules/container-app.bicep' = {
 // ── MCP Server Container App ───────────────────────────────────
 module mcpServer 'modules/container-app.bicep' = {
   name: 'mcp-server'
-  dependsOn: [kvSecretsUserRole]
   params: {
     name: '${projectName}-mcp-server'
     location: location
