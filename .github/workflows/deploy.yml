@@ -237,9 +237,10 @@ jobs:
 
           # Extract JWT from cookie jar for MCP Authorization header
           JWT=$(grep "access_token" "$COOKIE_JAR" | awk '{print $NF}')
+          MCP_URL="https://patelr3-mcp-server.gentlebay-ad6f417d.westus2.azurecontainerapps.io"
 
           # tools/list should return tools
-          MCP_LIST=$(curl -s -X POST "$FRONTEND_URL/api/mcp/mcp" \
+          MCP_LIST=$(curl -s -X POST "$MCP_URL/mcp" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $JWT" \
             -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}')
@@ -253,7 +254,7 @@ jobs:
           # tools/call list_budgets — tests finance-api key connectivity
           # citestuser has no AB instance, so we expect an error about deployment,
           # NOT a 401 from finance-api. A 401 means the key is wrong.
-          MCP_CALL=$(curl -s -X POST "$FRONTEND_URL/api/mcp/mcp" \
+          MCP_CALL=$(curl -s -X POST "$MCP_URL/mcp" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $JWT" \
             -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_budgets","arguments":{}}}')
