@@ -274,6 +274,7 @@ curl -s https://www.arayosun.com/api/auth/oidc/.well-known/openid-configuration 
 | SunnieAI "Invalid thread_id: 'undefined'" | React state race condition in `SunnieAI.jsx` — `createThread()` sets state async but `sendMessage()` reads it immediately | Ensure `createThread()` returns the thread object and `sendMessage()` uses the return value directly |
 | SunnieAI MCP tool calls fail (401 from finance-api) | `FINANCE_API_KEY` out of sync between mcp-server and finance-api | Update the key in AKV (`finance-api-key`); all ACAs using KV refs will auto-refresh within 30 min |
 | SunnieAI MCP 404 "Error retrieving tool list" | Foundry agent `server_url` missing `/mcp` path suffix | Update agent via `az rest --method POST` to set `server_url` ending in `/mcp` |
+| SunnieAI "Service token not found" | AB container's `.service-token` deleted by rsync `--delete` in entrypoint sync loop | Fix `entrypoint.sh`: exclude `.service-token` from rsync `--delete`, write token to both `/data/` and `/persistent/` |
 
 ### Dependency Chains
 
