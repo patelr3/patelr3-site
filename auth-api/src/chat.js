@@ -165,7 +165,21 @@ router.post("/threads/:threadId/messages", async (req, res) => {
       return res.status(502).json({ error: "Failed to add message" });
     }
 
-    // 2. Create run (streaming)
+    // 2. Build MCP tool_resources with user JWT for authentication
+    const userJwt = req.cookies.access_token;
+    const toolResources = {
+      mcp: [
+        {
+          server_label: "actualbudget",
+          headers: {
+            Authorization: `Bearer ${userJwt}`,
+          },
+          require_approval: "never",
+        },
+      ],
+    };
+
+    // 3. Create run (streaming)
     const runRes = await foundryFetch(
       `/threads/${req.params.threadId}/runs?api-version=v1`,
       {
@@ -174,6 +188,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         body: JSON.stringify({
           assistant_id: FOUNDRY_AGENT_ID,
           stream: true,
+          tool_resources: toolResources,
         }),
       },
     );
