@@ -16,16 +16,11 @@ const FOUNDRY_ENDPOINT = config.foundryProjectEndpoint;
 const FOUNDRY_AGENT_NAME = config.foundryAgentName;
 
 // Derive the OpenAI base URL from the project endpoint
-// Project: https://host.services.ai.azure.com/api/projects/proj-name
-// OpenAI:  https://host.services.ai.azure.com/openai/v1
+// Try project-scoped first, fallback to resource-level
 function getOpenAIBaseUrl() {
   if (!FOUNDRY_ENDPOINT) return "";
-  try {
-    const u = new URL(FOUNDRY_ENDPOINT);
-    return `${u.origin}/openai/v1`;
-  } catch {
-    return FOUNDRY_ENDPOINT;
-  }
+  // Use project-scoped endpoint: {endpoint}/openai/v1
+  return `${FOUNDRY_ENDPOINT.replace(/\/+$/, "")}/openai/v1`;
 }
 const OPENAI_BASE = getOpenAIBaseUrl();
 
@@ -34,15 +29,27 @@ const SUMMARY_THRESHOLD = 10;  // summarize when > 10 messages
 const RECENT_MESSAGES_KEEP = 6; // keep last 6 messages verbatim
 
 async function getAzureToken() {
-  const { DefaultAzureCredential } = await import("@azure/identity");
-  const credential = new DefaultAzureCredential();
-  const token = await credential.getToken("https://cognitiveservices.azure.com/.default");
-  return token.token;
+  try {
+    const { DefaultAzureCredential } = await import("@azure/identity");
+    const credential = new DefaultAzureCredential();
+    // Try cognitiveservices scope first (v1 API), fallback to ai.azure.com
+    try {
+      const token = await credential.getToken("https://cognitiveservices.azure.com/.default");
+      return token.token;
+    } catch {
+      const token = await credential.getToken("https://ai.azure.com/.default");
+      return token.token;
+    }
+  } catch (err) {
+    console.error("[chat] Failed to get Azure token:", err.message);
+    throw err;
+  }
 }
 
 async function foundryFetch(path, opts = {}) {
   const token = await getAzureToken();
   const url = `${OPENAI_BASE}${path}`;
+  console.log(`[chat] Foundry request: ${opts.method || "GET"} ${url}`);
   const res = await fetch(url, {
     ...opts,
     headers: {
@@ -51,6 +58,7 @@ async function foundryFetch(path, opts = {}) {
       ...opts.headers,
     },
   });
+  console.log(`[chat] Foundry response: ${res.status} ${res.statusText}`);
   return res;
 }
 
