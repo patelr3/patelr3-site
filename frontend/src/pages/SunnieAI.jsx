@@ -17,6 +17,7 @@ export default function SunnieAI({ user }) {
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const skipMessageFetchRef = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -83,6 +84,11 @@ export default function SunnieAI({ user }) {
       setMessages([]);
       return;
     }
+    // Skip fetch when thread was just created (sendMessage handles messages)
+    if (skipMessageFetchRef.current) {
+      skipMessageFetchRef.current = false;
+      return;
+    }
     fetch(`/api/auth/chat/threads/${activeThread}/messages`, { credentials: "include" })
       .then((r) => r.json())
       .then((data) => {
@@ -108,6 +114,7 @@ export default function SunnieAI({ user }) {
       });
       const thread = await res.json();
       setThreads((prev) => [thread, ...prev]);
+      skipMessageFetchRef.current = true;
       setActiveThread(thread.foundry_thread_id);
       setMessages([]);
       setLoading(false);
@@ -357,8 +364,20 @@ export default function SunnieAI({ user }) {
                 onClick={toggleListening}
                 disabled={streaming}
                 title={listening ? "Stop recording" : "Voice input"}
+                aria-label={listening ? "Stop recording" : "Voice input"}
               >
-                {listening ? "⏹" : "🎤"}
+                {listening ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="4" y="4" width="16" height="16" rx="2" />
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="1" width="6" height="12" rx="3" />
+                    <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+                    <line x1="12" y1="18" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
+                  </svg>
+                )}
               </button>
             )}
             <button onClick={sendMessage} disabled={streaming || !input.trim()}>
