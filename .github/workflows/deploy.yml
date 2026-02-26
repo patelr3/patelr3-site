@@ -379,15 +379,18 @@ jobs:
           fi
 
           if [ -n "$THREAD_ID" ]; then
-            MSG_BODY=$(curl -s --max-time 60 \
+            MSG_BODY=$(curl -sv --max-time 60 \
               -X POST "$FRONTEND_URL/api/auth/chat/threads/$THREAD_ID/messages" \
               -H "Content-Type: application/json" \
-              -d '{"content":"List my budgets"}' \
-              -b "$COOKIE_JAR" -w "\n__HTTP_STATUS__%{http_code}")
+              -d '{"content":"Hello"}' \
+              -b "$COOKIE_JAR" -w "\n__HTTP_STATUS__%{http_code}" 2>&1)
             MSG_STATUS=$(echo "$MSG_BODY" | grep '__HTTP_STATUS__' | sed 's/__HTTP_STATUS__//')
-            MSG_STREAM=$(echo "$MSG_BODY" | grep -v '__HTTP_STATUS__')
+            MSG_STREAM=$(echo "$MSG_BODY" | grep -v '__HTTP_STATUS__' | grep -v '^\*' | grep -v '^>' | grep -v '^<' | grep -v '^\{' | grep -v '^}' | head -20)
             if [ "$MSG_STATUS" != "200" ]; then
-              fail "POST message" "expected 200, got $MSG_STATUS — body: $(echo "$MSG_STREAM" | head -c 200)"
+              echo "    DEBUG: full response (first 500 chars):"
+              echo "$MSG_BODY" | head -c 500
+              echo ""
+              fail "POST message" "expected 200, got $MSG_STATUS"
             elif echo "$MSG_STREAM" | grep -q '"thread.run.failed"'; then
               FAIL_MSG=$(echo "$MSG_STREAM" | grep 'thread.run.failed' | head -1)
               fail "POST message stream" "run failed: $FAIL_MSG"
