@@ -270,12 +270,21 @@ jobs:
           fi
 
           if [ -n "$THREAD_ID" ]; then
-            MSG_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+            MSG_BODY=$(curl -s --max-time 30 \
               -X POST "$FRONTEND_URL/api/auth/chat/threads/$THREAD_ID/messages" \
               -H "Content-Type: application/json" \
-              -d '{"content":"Hello"}' \
-              -b "$COOKIE_JAR")
-            if [ "$MSG_STATUS" = "200" ]; then pass "POST message returns 200 (streaming)"; else fail "POST message" "expected 200, got $MSG_STATUS"; fi
+              -d '{"content":"Hello, what can you do?"}' \
+              -b "$COOKIE_JAR" -w "\n__HTTP_STATUS__%{http_code}")
+            MSG_STATUS=$(echo "$MSG_BODY" | grep '__HTTP_STATUS__' | sed 's/__HTTP_STATUS__//')
+            MSG_STREAM=$(echo "$MSG_BODY" | grep -v '__HTTP_STATUS__')
+            if [ "$MSG_STATUS" != "200" ]; then
+              fail "POST message" "expected 200, got $MSG_STATUS"
+            elif echo "$MSG_STREAM" | grep -q '"thread.run.failed"'; then
+              FAIL_MSG=$(echo "$MSG_STREAM" | grep 'thread.run.failed' | head -1)
+              fail "POST message stream" "run failed: $FAIL_MSG"
+            else
+              pass "POST message returns 200 (streaming, no failures)"
+            fi
 
             # Clean up test thread
             curl -s -o /dev/null -X DELETE "$FRONTEND_URL/api/auth/chat/threads/$THREAD_ID" -b "$COOKIE_JAR" || true
