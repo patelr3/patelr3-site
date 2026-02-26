@@ -69,6 +69,30 @@ Client → nginx container (:80) → routes to service containers
 - Auth verification: `GET /auth/verify` returns 200 + `X-Auth-User`/`X-Auth-Role` headers
 - OIDC IdP endpoints at `/api/auth/oidc/*` (for ActualBudget instances)
 
+### SunnieAI / Azure AI Foundry
+
+SunnieAI is the AI chat feature powered by Azure AI Foundry Agent Service. Understanding its dependency chain is critical for diagnosis.
+
+**Dependency chain (all must be present):**
+1. Foundry infra deployed (`deploy-foundry.yml` → `foundry.bicep`) → creates AI Hub + Project + gpt-4o model in `patelr3-ai-rg` (East US 2)
+2. Agent registered (`scripts/setup-foundry-agent.py`) → creates SunnieAI agent with MCP tools
+3. `FOUNDRY_PROJECT_ENDPOINT` and `FOUNDRY_AGENT_ID` set as GitHub Secrets
+4. `deploy.yml` passes both params to Bicep deployment
+5. Auth-API ACA managed identity has "Azure AI Developer" role on Foundry project
+
+**Key files:**
+- `frontend/src/pages/SunnieAI.jsx` — Chat UI (auth-gated, route `/sunnieai`)
+- `auth-api/src/chat.js` — Foundry proxy (threads CRUD, streaming SSE runs)
+- `auth-api/src/app.js:438` — Mounts chat router at `/auth/chat` behind `requireAuth`
+- `auth-api/src/config.js:14-15` — Reads `FOUNDRY_PROJECT_ENDPOINT` and `FOUNDRY_AGENT_ID`
+- `auth-api/src/db.js:124` — `chat_threads` table (auto-migrated)
+- `deployments/foundry.bicep` — AI Hub, Project, AI Services, gpt-4o model
+- `scripts/setup-foundry-agent.py` — Agent registration (idempotent)
+- `.github/workflows/deploy-foundry.yml` — Foundry deploy workflow (manual trigger)
+
+**Health check:** `GET /api/auth/chat/health` returns `{ configured: true/false }`.  
+If `configured: false`, the env vars are empty — trace back up the dependency chain.
+
 ### Key Environment Variables
 
 | Variable | Where | Purpose |
@@ -78,7 +102,8 @@ Client → nginx container (:80) → routes to service containers
 | `DATABASE_URL` | auth-api | Postgres connection string |
 | `FRONTEND_URL` | auth-api, hello-world, hello-world-restricted | Cookie domain / CORS |
 | `FINANCE_API_URL` / `FINANCE_API_KEY` | auth-api, mcp-server, AKV | Finance API access |
-| `FOUNDRY_PROJECT_ENDPOINT` / `FOUNDRY_AGENT_ID` | auth-api | Azure AI Foundry |
+| `FOUNDRY_PROJECT_ENDPOINT` | auth-api | Azure AI Foundry project URL (empty = SunnieAI disabled) |
+| `FOUNDRY_AGENT_ID` | auth-api | Registered Foundry agent ID (empty = SunnieAI disabled) |
 
 ## Investigation Playbook
 
@@ -167,6 +192,41 @@ curl -s -o /dev/null -w '%{http_code}' \
 # ACAs in the same environment communicate via internal FQDN (http://patelr3-auth-api)
 ```
 
+### Step 7: Check Feature-Specific Dependencies
+
+Some features depend on infrastructure beyond the core stack. Check the full dependency chain:
+
+**SunnieAI / Foundry:**
+```bash
+# 1. Has the Foundry workflow ever run?
+gh run list --workflow=deploy-foundry.yml --repo patelr3/patelr3-site --limit 5
+
+# 2. Does the AI resource group exist?
+az group exists --name patelr3-ai-rg
+
+# 3. Are the Foundry env vars set on auth-api (non-empty)?
+az containerapp show \
+  --name patelr3-auth-api \
+  --resource-group patelr3-site-rg \
+  --query 'properties.template.containers[0].env[?name==`FOUNDRY_PROJECT_ENDPOINT`].value' -o tsv
+
+# 4. Check health endpoint
+curl -s https://www.arayosun.com/api/auth/chat/health
+
+# 5. Check if deploy.yml passes Foundry params to Bicep
+grep -n 'foundryProjectEndpoint\|foundryAgentId' .github/workflows/deploy.yml
+```
+
+**ActualBudget / Finance API:**
+```bash
+# 1. Finance API health
+curl -s -o /dev/null -w '%{http_code}' \
+  https://finance-api.icytree-0e39e2f3.westus2.azurecontainerapps.io/health
+
+# 2. OIDC discovery accessible?
+curl -s https://www.arayosun.com/api/auth/oidc/.well-known/openid-configuration | head -5
+```
+
 ## Common Root Causes (Reference)
 
 | Symptom | Likely Cause | Fix |
@@ -180,6 +240,33 @@ curl -s -o /dev/null -w '%{http_code}' \
 | ACA secret not updating | Secrets need new revision to propagate | `az containerapp update --image` forces new revision |
 | 502 Bad Gateway | Upstream ACA not ready or wrong port | Check `targetPort` in Bicep, verify container is listening |
 | OIDC login fails for ActualBudget | Google redirect URI not registered | Add callback URL in Google Cloud Console |
+| SunnieAI "not configured" | `FOUNDRY_PROJECT_ENDPOINT`/`FOUNDRY_AGENT_ID` are empty | Run `deploy-foundry.yml`, store outputs as secrets, ensure `deploy.yml` passes them |
+| SunnieAI infra exists but still disabled | `deploy.yml` doesn't pass Foundry params to Bicep | Add `foundryProjectEndpoint` and `foundryAgentId` params to the `az deployment` command |
+| SunnieAI 403 from Foundry | Auth-API ACA managed identity lacks RBAC | Assign "Azure AI Developer" role on Foundry project to auth-api identity |
+
+### Dependency Chains
+
+Some issues are caused by missing upstream dependencies. Trace the chain from bottom to top:
+
+**SunnieAI chain:**
+```
+deploy-foundry.yml runs
+  → Foundry infra created (AI Hub + Project + gpt-4o)
+    → setup-foundry-agent.py registers agent
+      → FOUNDRY_PROJECT_ENDPOINT + FOUNDRY_AGENT_ID stored as GitHub Secrets
+        → deploy.yml passes both to Bicep
+          → auth-api ACA receives non-empty env vars
+            → /api/auth/chat/health returns configured: true
+              → SunnieAI UI works
+```
+
+**Finance API key chain:**
+```
+Key generated → stored in AKV + both repo GitHub Secrets
+  → patelr3-site deploy.yml passes financeApiKey to Bicep
+    → actual-server-setup deploys finance-api with same key
+      → auth-api and mcp-server can reach finance-api
+```
 
 ## Report Format
 
