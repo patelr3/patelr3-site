@@ -15,7 +15,7 @@ async function getAzureToken() {
   // Use managed identity in ACA, DefaultAzureCredential locally
   const { DefaultAzureCredential } = await import("@azure/identity");
   const credential = new DefaultAzureCredential();
-  const token = await credential.getToken("https://cognitiveservices.azure.com/.default");
+  const token = await credential.getToken("https://ai.azure.com/.default");
   return token.token;
 }
 
