@@ -15,6 +15,20 @@ const router = Router();
 const FOUNDRY_ENDPOINT = config.foundryProjectEndpoint;
 const FOUNDRY_AGENT_NAME = config.foundryAgentName;
 
+// Derive the OpenAI base URL from the project endpoint
+// Project: https://host.services.ai.azure.com/api/projects/proj-name
+// OpenAI:  https://host.services.ai.azure.com/openai/v1
+function getOpenAIBaseUrl() {
+  if (!FOUNDRY_ENDPOINT) return "";
+  try {
+    const u = new URL(FOUNDRY_ENDPOINT);
+    return `${u.origin}/openai/v1`;
+  } catch {
+    return FOUNDRY_ENDPOINT;
+  }
+}
+const OPENAI_BASE = getOpenAIBaseUrl();
+
 // Summarization thresholds
 const SUMMARY_THRESHOLD = 10;  // summarize when > 10 messages
 const RECENT_MESSAGES_KEEP = 6; // keep last 6 messages verbatim
@@ -28,7 +42,7 @@ async function getAzureToken() {
 
 async function foundryFetch(path, opts = {}) {
   const token = await getAzureToken();
-  const url = `${FOUNDRY_ENDPOINT}${path}`;
+  const url = `${OPENAI_BASE}${path}`;
   const res = await fetch(url, {
     ...opts,
     headers: {
@@ -152,7 +166,7 @@ async function maybeSummarize(threadId) {
       .join("\n");
 
     const summaryRes = await foundryFetch(
-      "/openai/v1/responses",
+      "/responses",
       {
         method: "POST",
         body: JSON.stringify({
@@ -224,7 +238,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     }
 
     const runRes = await foundryFetch(
-      "/openai/v1/responses",
+      "/responses",
       {
         method: "POST",
         headers: { Accept: "text/event-stream" },
@@ -235,7 +249,8 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     if (!runRes.ok) {
       const err = await runRes.text();
       console.error(`[chat] Response creation failed (${runRes.status}):`, err);
-      return res.status(502).json({ error: "Failed to run agent" });
+      const detail = err.substring(0, 300);
+      return res.status(502).json({ error: "Failed to run agent", upstream_status: runRes.status, detail });
     }
 
     // 4. Stream SSE response to client

@@ -387,7 +387,7 @@ jobs:
             MSG_STATUS=$(echo "$MSG_BODY" | grep '__HTTP_STATUS__' | sed 's/__HTTP_STATUS__//')
             MSG_STREAM=$(echo "$MSG_BODY" | grep -v '__HTTP_STATUS__')
             if [ "$MSG_STATUS" != "200" ]; then
-              fail "POST message" "expected 200, got $MSG_STATUS"
+              fail "POST message" "expected 200, got $MSG_STATUS — body: $(echo "$MSG_STREAM" | head -c 200)"
             elif echo "$MSG_STREAM" | grep -q '"thread.run.failed"'; then
               FAIL_MSG=$(echo "$MSG_STREAM" | grep 'thread.run.failed' | head -1)
               fail "POST message stream" "run failed: $FAIL_MSG"
