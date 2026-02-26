@@ -12,7 +12,7 @@ The Foundry resources use the **CognitiveServices** resource provider. The AI Se
 |----------|------|------|----------|
 | AI Services | `Microsoft.CognitiveServices/accounts` | `patelr3-openai-1` | westus |
 | AI Project | `accounts/projects` | `patelr3-prod-1` | westus |
-| Model deployment | `accounts/deployments` | `gpt-4.1` (GlobalStandard, 2025-04-14) | westus |
+| Model deployment | `accounts/deployments` | `gpt-4.1` (Standard, 2025-04-14) | westus |
 | Agent | Foundry Agent | `sunnieai-assistant` | — |
 
 **Resource Group:** `patelr3-ai-rg`  
@@ -60,7 +60,7 @@ python scripts/setup-foundry-agent.py
 | Resource | Type | Purpose |
 |----------|------|---------|
 | AI Services | `Microsoft.CognitiveServices/accounts` | OpenAI model hosting |
-| Model deployment | `accounts/deployments` | gpt-4.1 GlobalStandard (configurable) |
+| Model deployment | `accounts/deployments` | gpt-4.1 Standard (configurable) |
 | AI Project | `accounts/projects` | SunnieAI workspace |
 | RBAC role assignment | `Microsoft.Authorization/roleAssignments` | Cognitive Services User for auth-api |
 
