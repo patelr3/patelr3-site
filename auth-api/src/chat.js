@@ -32,14 +32,8 @@ async function getAzureToken() {
   try {
     const { DefaultAzureCredential } = await import("@azure/identity");
     const credential = new DefaultAzureCredential();
-    // Try cognitiveservices scope first (v1 API), fallback to ai.azure.com
-    try {
-      const token = await credential.getToken("https://cognitiveservices.azure.com/.default");
-      return token.token;
-    } catch {
-      const token = await credential.getToken("https://ai.azure.com/.default");
-      return token.token;
-    }
+    const token = await credential.getToken("https://cognitiveservices.azure.com/.default");
+    return token.token;
   } catch (err) {
     console.error("[chat] Failed to get Azure token:", err.message);
     throw err;
