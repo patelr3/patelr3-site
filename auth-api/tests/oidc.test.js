@@ -29,6 +29,13 @@ const mockDb = {
   getOrCreateThread: jest.fn(),
   getUserThreads: jest.fn(),
   deleteThread: jest.fn(),
+  createThread: jest.fn(),
+  getThreadById: jest.fn(),
+  addChatMessage: jest.fn(),
+  getChatMessages: jest.fn(),
+  getChatMessageCount: jest.fn(),
+  updateThreadSummary: jest.fn(),
+  getThreadSummary: jest.fn(),
 };
 
 jest.unstable_mockModule("../src/db.js", () => mockDb);
