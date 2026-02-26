@@ -260,8 +260,8 @@ jobs:
           echo ""
           echo "E2E MCP + ActualBudget:"
 
-          # Get citestuser's userId from /auth/me
-          CI_USER_ID=$(echo "$ME_BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+          # Get citestuser's userId from JWT sub claim
+          CI_USER_ID=$(echo "$JWT" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | grep -o '"sub":[0-9]*' | grep -o '[0-9]*')
           echo "  citestuser userId: $CI_USER_ID"
 
           # Check if citestuser already has an AB instance
