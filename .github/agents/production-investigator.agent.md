@@ -78,7 +78,7 @@ SunnieAI is the AI chat feature powered by Azure AI Foundry Agent Service. Uses 
 - **Project:** `patelr3-prod-1`
 - **Project endpoint:** `https://patelr3-openai-1.services.ai.azure.com/api/projects/patelr3-prod-1`
 - **Agent ID:** `asst_qxOzueeredSdAyDr65qfKc4k`
-- **Token scope:** `https://cognitiveservices.azure.com/.default` (NOT `ml.azure.com`)
+- **Token scope:** `https://ai.azure.com/.default` (NOT `cognitiveservices.azure.com` or `ml.azure.com`)
 
 **Dependency chain (all must be present):**
 1. Foundry infra deployed (`deploy-foundry.yml` → `foundry.bicep`) → CognitiveServices account + project + gpt-4o model in `patelr3-ai-rg` (westus)
@@ -89,7 +89,7 @@ SunnieAI is the AI chat feature powered by Azure AI Foundry Agent Service. Uses 
 
 **Key files:**
 - `frontend/src/pages/SunnieAI.jsx` — Chat UI (auth-gated, route `/sunnieai`)
-- `auth-api/src/chat.js` — Foundry proxy (threads CRUD, streaming SSE runs, token scope: `cognitiveservices.azure.com`)
+- `auth-api/src/chat.js` — Foundry proxy (threads CRUD, streaming SSE runs, token scope: `ai.azure.com`)
 - `auth-api/src/app.js:438` — Mounts chat router at `/auth/chat` behind `requireAuth`
 - `auth-api/src/config.js:14-15` — Reads `FOUNDRY_PROJECT_ENDPOINT` and `FOUNDRY_AGENT_ID`
 - `auth-api/src/db.js:124` — `chat_threads` table (auto-migrated)
@@ -100,17 +100,31 @@ SunnieAI is the AI chat feature powered by Azure AI Foundry Agent Service. Uses 
 **Health check:** `GET /api/auth/chat/health` returns `{ configured: true/false }`.  
 If `configured: false`, the env vars are empty — trace back up the dependency chain.
 
-### Key Environment Variables
+**MCP protocol:** The MCP server exposes a JSON-RPC 2.0 endpoint at `/mcp`. Foundry Agent calls:
+- `initialize` → returns protocol version and capabilities
+- `tools/list` → returns available ActualBudget tools
+- `tools/call` → executes a tool with user auth from headers
 
-| Variable | Where | Purpose |
-|----------|-------|---------|
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | auth-api, AKV | OAuth credentials |
-| `JWT_SECRET` | auth-api, hello-world, hello-world-restricted, mcp-server, AKV | Token signing |
-| `DATABASE_URL` | auth-api | Postgres connection string |
+The agent's `server_url` must include the `/mcp` path (not just the root URL).
+
+### Key Environment Variables & Secrets
+
+All secrets are stored in Azure Key Vault (`patelr3kvl3ytczhajsp7i`) as the **single source of truth**. ACAs reference them via `keyVaultUrl` + a user-assigned managed identity (`patelr3-kv-reader`), so updating a secret in AKV automatically propagates to all ACAs within 30 minutes (or on next revision).
+
+| Secret (AKV name) | Used by | Purpose |
+|-------------------|---------|---------|
+| `google-client-id` / `google-client-secret` | auth-api | OAuth credentials |
+| `jwt-secret` | auth-api, hello-world, hello-world-restricted, mcp-server | Token signing |
+| `database-url` | auth-api | Postgres connection string |
+| `finance-api-key` | auth-api, mcp-server | Finance API access (must match finance-api's key in `patelr3-finance-rg`) |
+| `postgres-password` | postgres | DB password (also passed as Bicep param for postgres init) |
+| `foundry-project-endpoint` | auth-api | Azure AI Foundry project URL (empty = SunnieAI disabled) |
+| `foundry-agent-id` | auth-api | Registered Foundry agent ID (empty = SunnieAI disabled) |
+
+| Non-secret Env Var | Where | Purpose |
+|-------------------|-------|---------|
 | `FRONTEND_URL` | auth-api, hello-world, hello-world-restricted | Cookie domain / CORS |
-| `FINANCE_API_URL` / `FINANCE_API_KEY` | auth-api, mcp-server, AKV | Finance API access |
-| `FOUNDRY_PROJECT_ENDPOINT` | auth-api | Azure AI Foundry project URL (empty = SunnieAI disabled) |
-| `FOUNDRY_AGENT_ID` | auth-api | Registered Foundry agent ID (empty = SunnieAI disabled) |
+| `FINANCE_API_URL` | auth-api, mcp-server | Finance API base URL |
 
 ## Investigation Playbook
 
@@ -256,7 +270,10 @@ curl -s https://www.arayosun.com/api/auth/oidc/.well-known/openid-configuration 
 | OIDC login fails for ActualBudget | Google redirect URI not registered | Add callback URL in Google Cloud Console |
 | SunnieAI "not configured" | `FOUNDRY_PROJECT_ENDPOINT`/`FOUNDRY_AGENT_ID` are empty | Run `deploy-foundry.yml`, values stored in AKV, redeploy main site |
 | SunnieAI infra exists but still disabled | `deploy.yml` not fetching from AKV or AKV values missing | Check AKV secrets `foundry-project-endpoint` and `foundry-agent-id` exist |
-| SunnieAI 401 from Foundry | Auth-API ACA managed identity lacks RBAC or wrong token scope | Check identity enabled, `Cognitive Services User` role on `patelr3-openai-1`, token scope is `cognitiveservices.azure.com` |
+| SunnieAI 401 from Foundry | Auth-API ACA managed identity lacks RBAC or wrong token scope | Check identity enabled, `Cognitive Services User` role on `patelr3-openai-1`, token scope is `ai.azure.com` |
+| SunnieAI "Invalid thread_id: 'undefined'" | React state race condition in `SunnieAI.jsx` — `createThread()` sets state async but `sendMessage()` reads it immediately | Ensure `createThread()` returns the thread object and `sendMessage()` uses the return value directly |
+| SunnieAI MCP tool calls fail (401 from finance-api) | `FINANCE_API_KEY` out of sync between mcp-server and finance-api | Update the key in AKV (`finance-api-key`); all ACAs using KV refs will auto-refresh within 30 min |
+| SunnieAI MCP 404 "Error retrieving tool list" | Foundry agent `server_url` missing `/mcp` path suffix | Update agent via `az rest --method POST` to set `server_url` ending in `/mcp` |
 
 ### Dependency Chains
 
@@ -277,10 +294,12 @@ deploy-foundry.yml runs
 
 **Finance API key chain:**
 ```
-Key generated → stored in AKV + both repo GitHub Secrets
-  → patelr3-site deploy.yml passes financeApiKey to Bicep
-    → actual-server-setup deploys finance-api with same key
-      → auth-api and mcp-server can reach finance-api
+Key generated → stored in AKV (finance-api-key) + actual-server-setup GitHub Secret
+  → patelr3-site ACAs read from AKV via KV ref (auto-refresh ≤ 30 min)
+  → actual-server-setup deploys finance-api with same key from its GitHub Secret
+  → auth-api and mcp-server can reach finance-api
+Note: finance-api is in a separate repo/RG — its key comes from GitHub Secrets, not AKV.
+If you rotate the key, update BOTH: AKV + actual-server-setup GitHub Secret.
 ```
 
 ## Report Format

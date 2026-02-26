@@ -16,22 +16,11 @@ param imageTag string = 'latest'
 @description('Frontend public URL (for OAuth redirects)')
 param frontendUrl string = 'https://www.arayosun.com'
 
-// Secrets – passed at deploy time (from Key Vault, .env, or CI secrets)
-@secure()
-param googleClientId string
-@secure()
-param googleClientSecret string
-@secure()
-param jwtSecret string
+// Only postgresPassword is still needed as a param (for the postgres container
+// which uses a Docker Hub image and can't use managed identity for init).
+// All other secrets are read from Key Vault via AKV references.
 @secure()
 param postgresPassword string
-@secure()
-param financeApiKey string
-
-@description('Azure AI Foundry project endpoint (set after foundry.bicep deployment)')
-param foundryProjectEndpoint string = ''
-@description('Azure AI Foundry agent ID (set after agent registration)')
-param foundryAgentId string = ''
 
 param postgresUser string = 'patelr3'
 param postgresDb string = 'patelr3_site'
@@ -47,6 +36,9 @@ var tags = {
 var acrName = '${projectName}acr'
 var kvName = '${projectName}kv${uniqueString(resourceGroup().id)}'
 var envName = '${projectName}-cae'
+
+// Key Vault secret URL base (no trailing slash)
+var kvSecretsUrl = 'https://${kvName}${environment().suffixes.keyvaultDns}/secrets'
 
 // ── ACR ────────────────────────────────────────────────────────
 module acr 'modules/acr.bicep' = {
@@ -65,6 +57,32 @@ module keyVault 'modules/keyvault.bicep' = {
     name: kvName
     location: location
     tags: tags
+  }
+}
+
+// ── User-Assigned Managed Identity for AKV access ──────────────
+// Shared by all ACAs so they read secrets directly from Key Vault.
+// Avoids chicken-and-egg issues with system-assigned identity.
+resource kvReaderIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: '${projectName}-kv-reader'
+  location: location
+  tags: tags
+}
+
+// Reference the KV resource for role assignment scope
+resource kvRef 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: kvName
+  dependsOn: [keyVault]
+}
+
+// Grant Key Vault Secrets User role to the UAMI
+resource kvSecretsUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(kvRef.id, kvReaderIdentity.id, '4633458b-17de-408a-b874-0445c86b69e6')
+  scope: kvRef
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
+    principalId: kvReaderIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 
@@ -95,6 +113,7 @@ module postgres 'modules/postgres.bicep' = {
 // ── Auth API Container App ─────────────────────────────────────
 module authApi 'modules/container-app.bicep' = {
   name: 'auth-api'
+  dependsOn: [kvSecretsUserRole]
   params: {
     name: '${projectName}-auth-api'
     location: location
@@ -108,6 +127,7 @@ module authApi 'modules/container-app.bicep' = {
     external: true
     minReplicas: 1
     enableSystemIdentity: true
+    userAssignedIdentityId: kvReaderIdentity.id
     env: [
       { name: 'GOOGLE_CLIENT_ID', secretRef: 'google-client-id' }
       { name: 'GOOGLE_CLIENT_SECRET', secretRef: 'google-client-secret' }
@@ -117,15 +137,17 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'AUTH_API_URL', value: 'https://${projectName}-auth-api.${cae.outputs.defaultDomain}' }
       { name: 'FINANCE_API_URL', value: 'https://finance-api.${financeCaeDomain}' }
       { name: 'FINANCE_API_KEY', secretRef: 'finance-api-key' }
-      { name: 'FOUNDRY_PROJECT_ENDPOINT', value: foundryProjectEndpoint }
-      { name: 'FOUNDRY_AGENT_ID', value: foundryAgentId }
+      { name: 'FOUNDRY_PROJECT_ENDPOINT', secretRef: 'foundry-project-endpoint' }
+      { name: 'FOUNDRY_AGENT_ID', secretRef: 'foundry-agent-id' }
     ]
     secrets: [
-      { name: 'google-client-id', value: googleClientId }
-      { name: 'google-client-secret', value: googleClientSecret }
-      { name: 'jwt-secret', value: jwtSecret }
-      { name: 'database-url', value: 'postgresql://${postgresUser}:${postgresPassword}@${projectName}-postgres:5432/${postgresDb}' }
-      { name: 'finance-api-key', value: financeApiKey }
+      { name: 'google-client-id', keyVaultUrl: '${kvSecretsUrl}/google-client-id', identity: kvReaderIdentity.id }
+      { name: 'google-client-secret', keyVaultUrl: '${kvSecretsUrl}/google-client-secret', identity: kvReaderIdentity.id }
+      { name: 'jwt-secret', keyVaultUrl: '${kvSecretsUrl}/jwt-secret', identity: kvReaderIdentity.id }
+      { name: 'database-url', keyVaultUrl: '${kvSecretsUrl}/database-url', identity: kvReaderIdentity.id }
+      { name: 'finance-api-key', keyVaultUrl: '${kvSecretsUrl}/finance-api-key', identity: kvReaderIdentity.id }
+      { name: 'foundry-project-endpoint', keyVaultUrl: '${kvSecretsUrl}/foundry-project-endpoint', identity: kvReaderIdentity.id }
+      { name: 'foundry-agent-id', keyVaultUrl: '${kvSecretsUrl}/foundry-agent-id', identity: kvReaderIdentity.id }
     ]
   }
 }
@@ -133,6 +155,7 @@ module authApi 'modules/container-app.bicep' = {
 // ── Hello-World Container App ──────────────────────────────────
 module helloWorld 'modules/container-app.bicep' = {
   name: 'hello-world'
+  dependsOn: [kvSecretsUserRole]
   params: {
     name: '${projectName}-hello-world'
     location: location
@@ -144,12 +167,13 @@ module helloWorld 'modules/container-app.bicep' = {
     imageTag: imageTag
     targetPort: 5000
     external: true
+    userAssignedIdentityId: kvReaderIdentity.id
     env: [
       { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
       { name: 'FRONTEND_URL', value: frontendUrl }
     ]
     secrets: [
-      { name: 'jwt-secret', value: jwtSecret }
+      { name: 'jwt-secret', keyVaultUrl: '${kvSecretsUrl}/jwt-secret', identity: kvReaderIdentity.id }
     ]
   }
 }
@@ -157,6 +181,7 @@ module helloWorld 'modules/container-app.bicep' = {
 // ── Hello-World-Restricted Container App ───────────────────────
 module helloWorldRestricted 'modules/container-app.bicep' = {
   name: 'hello-world-restricted'
+  dependsOn: [kvSecretsUserRole]
   params: {
     name: '${projectName}-hello-world-restricted'
     location: location
@@ -168,12 +193,13 @@ module helloWorldRestricted 'modules/container-app.bicep' = {
     imageTag: imageTag
     targetPort: 5001
     external: true
+    userAssignedIdentityId: kvReaderIdentity.id
     env: [
       { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
       { name: 'FRONTEND_URL', value: frontendUrl }
     ]
     secrets: [
-      { name: 'jwt-secret', value: jwtSecret }
+      { name: 'jwt-secret', keyVaultUrl: '${kvSecretsUrl}/jwt-secret', identity: kvReaderIdentity.id }
     ]
   }
 }
@@ -181,6 +207,7 @@ module helloWorldRestricted 'modules/container-app.bicep' = {
 // ── MCP Server Container App ───────────────────────────────────
 module mcpServer 'modules/container-app.bicep' = {
   name: 'mcp-server'
+  dependsOn: [kvSecretsUserRole]
   params: {
     name: '${projectName}-mcp-server'
     location: location
@@ -193,14 +220,15 @@ module mcpServer 'modules/container-app.bicep' = {
     targetPort: 8090
     external: true
     minReplicas: 1
+    userAssignedIdentityId: kvReaderIdentity.id
     env: [
       { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
       { name: 'FINANCE_API_URL', value: 'https://finance-api.${financeCaeDomain}' }
       { name: 'FINANCE_API_KEY', secretRef: 'finance-api-key' }
     ]
     secrets: [
-      { name: 'jwt-secret', value: jwtSecret }
-      { name: 'finance-api-key', value: financeApiKey }
+      { name: 'jwt-secret', keyVaultUrl: '${kvSecretsUrl}/jwt-secret', identity: kvReaderIdentity.id }
+      { name: 'finance-api-key', keyVaultUrl: '${kvSecretsUrl}/finance-api-key', identity: kvReaderIdentity.id }
     ]
   }
 }

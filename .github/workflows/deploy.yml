@@ -101,17 +101,6 @@ jobs:
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Fetch Foundry config from Key Vault
-        id: foundry
-        run: |
-          KV_NAME="patelr3kvl3ytczhajsp7i"
-          ENDPOINT=$(az keyvault secret show --vault-name "$KV_NAME" --name foundry-project-endpoint --query value -o tsv 2>/dev/null || echo "")
-          AGENT_ID=$(az keyvault secret show --vault-name "$KV_NAME" --name foundry-agent-id --query value -o tsv 2>/dev/null || echo "")
-          if [ -z "$ENDPOINT" ]; then echo "⚠ foundry-project-endpoint not found in AKV"; fi
-          if [ -z "$AGENT_ID" ]; then echo "⚠ foundry-agent-id not found in AKV"; fi
-          echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
-          echo "agent_id=$AGENT_ID" >> "$GITHUB_OUTPUT"
-
       - name: Deploy Bicep
         run: |
           az deployment group create \
@@ -120,13 +109,7 @@ jobs:
             --parameters deployments/parameters.json \
             --parameters \
               imageTag="${{ env.IMAGE_TAG }}" \
-              googleClientId="${{ secrets.GOOGLE_CLIENT_ID }}" \
-              googleClientSecret="${{ secrets.GOOGLE_CLIENT_SECRET }}" \
-              jwtSecret="${{ secrets.JWT_SECRET }}" \
-              postgresPassword="${{ secrets.POSTGRES_PASSWORD }}" \
-              financeApiKey="${{ secrets.FINANCE_API_KEY }}" \
-              foundryProjectEndpoint="${{ steps.foundry.outputs.endpoint }}" \
-              foundryAgentId="${{ steps.foundry.outputs.agent_id }}"
+              postgresPassword="${{ secrets.POSTGRES_PASSWORD }}"
 
       - name: Update container app revisions
         run: |

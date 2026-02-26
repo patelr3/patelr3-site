@@ -69,10 +69,12 @@ export default function SunnieAI({ user }) {
       setThreads((prev) => [thread, ...prev]);
       setActiveThread(thread.foundry_thread_id);
       setMessages([]);
+      setLoading(false);
+      return thread;
     } catch {
-      // ignore
+      setLoading(false);
+      return null;
     }
-    setLoading(false);
   };
 
   const deleteThreadHandler = async (threadId) => {
@@ -89,8 +91,11 @@ export default function SunnieAI({ user }) {
 
   const sendMessage = async () => {
     if (!input.trim() || streaming) return;
-    if (!activeThread) {
-      await createThread();
+    let threadId = activeThread;
+    if (!threadId) {
+      const thread = await createThread();
+      if (!thread) return;
+      threadId = thread.foundry_thread_id;
     }
 
     const userMsg = input.trim();
@@ -102,7 +107,6 @@ export default function SunnieAI({ user }) {
     setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
     try {
-      const threadId = activeThread || threads[0]?.foundry_thread_id;
       const res = await fetch(`/api/auth/chat/threads/${threadId}/messages`, {
         method: "POST",
         credentials: "include",

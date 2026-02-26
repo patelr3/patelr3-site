@@ -17,6 +17,12 @@ param cpu string = '0.25'
 param memory string = '0.5Gi'
 param customDomains array = []
 param enableSystemIdentity bool = false
+param userAssignedIdentityId string = ''
+
+var hasSystem = enableSystemIdentity
+var hasUser = !empty(userAssignedIdentityId)
+var identityType = hasSystem && hasUser ? 'SystemAssigned,UserAssigned' : hasSystem ? 'SystemAssigned' : hasUser ? 'UserAssigned' : 'None'
+var userIdentities = hasUser ? { '${userAssignedIdentityId}': {} } : {}
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: acrName
@@ -26,7 +32,10 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
   name: name
   location: location
   tags: tags
-  identity: enableSystemIdentity ? { type: 'SystemAssigned' } : { type: 'None' }
+  identity: identityType == 'None' ? { type: 'None' } : identityType == 'SystemAssigned' ? { type: 'SystemAssigned' } : {
+    type: identityType
+    userAssignedIdentities: userIdentities
+  }
   properties: {
     managedEnvironmentId: envId
     configuration: {

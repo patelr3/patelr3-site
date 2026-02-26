@@ -58,7 +58,26 @@ When making code changes to any service (frontend, auth-api, hello-world, nginx,
 - Environment variables come from `.env` (see `.env.example` for the template).
 - auth-api proxies deployment requests to the finance-api in patelr3/actual-server-setup.
 - auth-api also acts as an OIDC Identity Provider for ActualBudget instances (wraps Google OAuth).
-- **SunnieAI** (AI chat) is powered by Azure AI Foundry Agent Service. Auth-api proxies to Foundry using managed identity + `Cognitive Services User` RBAC. Requires `FOUNDRY_PROJECT_ENDPOINT` and `FOUNDRY_AGENT_ID` env vars (fetched from AKV in CI). See `docs/foundry-setup.md` for details.
+- **SunnieAI** (AI chat) is powered by Azure AI Foundry Agent Service. Auth-api proxies to Foundry using managed identity + `Cognitive Services User` RBAC. Requires `FOUNDRY_PROJECT_ENDPOINT` and `FOUNDRY_AGENT_ID` env vars (from AKV). See `docs/foundry-setup.md` for details.
+
+## Secrets Management (AKV References)
+
+**Azure Key Vault (`patelr3kvl3ytczhajsp7i`) is the single source of truth for all secrets.**
+
+All ACA secrets use Key Vault references (`keyVaultUrl` + user-assigned managed identity `patelr3-kv-reader`), not value-based secrets. This means:
+
+- **To rotate a secret:** Update it in AKV → ACAs auto-refresh within 30 minutes, or deploy a new revision to force immediate pickup.
+- **No GitHub Secrets needed for most values** — only `POSTGRES_PASSWORD` is still passed as a Bicep param (for the postgres container init).
+- **Cross-repo secrets** (e.g., `FINANCE_API_KEY`): Update AKV for patelr3-site ACAs, and also update the GitHub Secret in `patelr3/actual-server-setup` for the finance-api.
+
+| AKV Secret | Used By |
+|------------|---------|
+| `google-client-id`, `google-client-secret` | auth-api |
+| `jwt-secret` | auth-api, hello-world, hello-world-restricted, mcp-server |
+| `database-url` | auth-api |
+| `finance-api-key` | auth-api, mcp-server |
+| `foundry-project-endpoint`, `foundry-agent-id` | auth-api |
+| `postgres-password` | postgres (Bicep param) |
 
 ## Service Visibility
 
