@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 const MCP_SERVERS = [
   { id: "actualbudget", name: "Actual Budget", description: "Personal finance data" },
@@ -14,6 +14,8 @@ export default function SunnieAI({ user }) {
   const [enabledServers, setEnabledServers] = useState(["actualbudget"]);
   const [showSettings, setShowSettings] = useState(false);
   const [configured, setConfigured] = useState(null);
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -27,6 +29,45 @@ export default function SunnieAI({ user }) {
       .then((data) => setConfigured(data.configured))
       .catch(() => setConfigured(false));
   }, []);
+
+  // Speech recognition (Web Speech API)
+  const speechSupported = typeof window !== "undefined" &&
+    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+
+  const toggleListening = useCallback(() => {
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = true;
+    recognition.continuous = true;
+
+    let finalTranscript = "";
+
+    recognition.onresult = (event) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        } else {
+          interim += event.results[i][0].transcript;
+        }
+      }
+      setInput(finalTranscript + interim);
+    };
+
+    recognition.onend = () => setListening(false);
+    recognition.onerror = () => setListening(false);
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  }, [listening]);
 
   // Load threads
   useEffect(() => {
@@ -310,6 +351,16 @@ export default function SunnieAI({ user }) {
               placeholder={activeThread ? "Type a message..." : "Start a new conversation..."}
               disabled={streaming}
             />
+            {speechSupported && (
+              <button
+                className={`sunnieai-mic-btn ${listening ? "listening" : ""}`}
+                onClick={toggleListening}
+                disabled={streaming}
+                title={listening ? "Stop recording" : "Voice input"}
+              >
+                {listening ? "⏹" : "🎤"}
+              </button>
+            )}
             <button onClick={sendMessage} disabled={streaming || !input.trim()}>
               {streaming ? "..." : "Send"}
             </button>
