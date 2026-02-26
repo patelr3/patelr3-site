@@ -72,7 +72,7 @@ router.get("/health", async (_req, res) => {
         input: "test",
         model: "gpt-4.1",
         store: false,
-        max_output_tokens: 5,
+        max_output_tokens: 16,
       }),
     });
     health.foundryStatus = testRes.status;
@@ -274,8 +274,8 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     if (!runRes.ok) {
       const err = await runRes.text();
       console.error(`[chat] Response creation failed (${runRes.status}):`, err);
-      const detail = err.substring(0, 300);
-      return res.status(502).json({ error: "Failed to run agent", upstream_status: runRes.status, detail });
+      const detail = err.substring(0, 500);
+      return res.status(503).json({ error: "Failed to run agent", upstream_status: runRes.status, detail });
     }
 
     // 4. Stream SSE response to client
