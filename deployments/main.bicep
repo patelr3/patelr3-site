@@ -191,6 +191,7 @@ module mcpServer 'modules/container-app.bicep' = {
     imageTag: imageTag
     targetPort: 8090
     external: true
+    minReplicas: 1
     env: [
       { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
       { name: 'FINANCE_API_URL', value: 'https://finance-api.${financeCaeDomain}' }
