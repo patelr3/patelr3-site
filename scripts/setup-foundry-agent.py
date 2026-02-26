@@ -3,20 +3,23 @@
 Register/update the ActualBudget MCP agent in Azure AI Foundry.
 
 Idempotent: creates the agent if it doesn't exist, updates it otherwise.
-Supports adding models and MCP servers via command-line args.
+Uses REST API directly (azure-ai-agents SDK removed McpTool in v1.1.0).
 
 Prerequisites:
-  pip install azure-ai-projects azure-ai-agents azure-identity
+  pip install azure-identity
 
 Usage:
   # First deploy: creates agent
   python scripts/setup-foundry-agent.py
 
   # Update model or tools later — same command, idempotent
-  python scripts/setup-foundry-agent.py --model gpt-4o-mini
+  python scripts/setup-foundry-agent.py --model gpt-4.1-mini
 
   # Custom MCP server URL
   python scripts/setup-foundry-agent.py --mcp-url https://my-mcp.example.com
+
+  # Force re-creation (e.g., after switching classic → new Foundry)
+  python scripts/setup-foundry-agent.py --recreate
 
 Environment variables:
   PROJECT_ENDPOINT  — Azure AI Foundry project endpoint
@@ -27,13 +30,14 @@ import argparse
 import json
 import os
 import sys
+import urllib.request
+import urllib.error
 
-from azure.ai.projects import AIProjectClient
-from azure.ai.agents.models import McpTool
 from azure.identity import DefaultAzureCredential
 
 AGENT_NAME = "sunnieai-assistant"
 STATE_FILE = os.path.join(os.path.dirname(__file__), ".foundry-agent-state.json")
+API_VERSION = "v1"
 
 MCP_TOOLS = [
     "list_budgets", "load_budget", "get_budget_summary",
@@ -69,6 +73,23 @@ def save_state(state):
         json.dump(state, f, indent=2)
 
 
+def foundry_request(endpoint, path, token, method="GET", body=None):
+    """Make a REST request to the Foundry Agent API."""
+    url = f"{endpoint}/{path}?api-version={API_VERSION}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    data = json.dumps(body).encode() if body else None
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode() if e.fp else ""
+        raise RuntimeError(f"HTTP {e.code}: {error_body}") from e
+
+
 def main():
     parser = argparse.ArgumentParser(description="Register/update SunnieAI agent in Azure AI Foundry")
     parser.add_argument("--model", default="gpt-4.1", help="Model deployment name (default: gpt-4.1)")
@@ -82,7 +103,6 @@ def main():
     mcp_url = args.mcp_url or os.environ.get("MCP_SERVER_URL")
 
     if not project_endpoint:
-        # Default to the known CognitiveServices project endpoint
         project_endpoint = "https://patelr3-openai-1.services.ai.azure.com/api/projects/patelr3-prod-1"
         print(f"  Using default PROJECT_ENDPOINT: {project_endpoint}")
 
@@ -90,10 +110,9 @@ def main():
         print("Error: MCP_SERVER_URL env or --mcp-url flag is required")
         sys.exit(1)
 
-    client = AIProjectClient(
-        credential=DefaultAzureCredential(),
-        endpoint=project_endpoint,
-    )
+    # Get Azure token
+    credential = DefaultAzureCredential()
+    token = credential.get_token("https://ai.azure.com/.default").token
 
     state = load_state()
     agent_id = args.agent_id or state.get("agent_id")
@@ -103,69 +122,69 @@ def main():
     # Delete flow
     if args.delete:
         if agent_id:
-            client.agents.delete_agent(agent_id)
+            foundry_request(project_endpoint, f"assistants/{agent_id}", token, method="DELETE")
             print(f"✓ Agent {agent_id} deleted")
             os.remove(STATE_FILE)
         else:
             print("No agent to delete (no state file)")
         return
 
-    # Build MCP tool
-    mcp_tool = McpTool(
-        server_label="actualbudget",
-        server_url=mcp_url,
-        allowed_tools=MCP_TOOLS,
-    )
+    # MCP tool definition (REST API format — type: "mcp" as a Tool)
+    mcp_tool_def = {
+        "type": "mcp",
+        "server_label": "actualbudget",
+        "server_url": f"{mcp_url}/mcp",
+        "allowed_tools": MCP_TOOLS,
+    }
+
+    agent_body = {
+        "model": args.model,
+        "name": AGENT_NAME,
+        "instructions": INSTRUCTIONS,
+        "tools": [mcp_tool_def],
+    }
 
     print(f"=== SunnieAI Agent Setup ===")
     print(f"Endpoint: {project_endpoint}")
     print(f"Model:    {args.model}")
-    print(f"MCP URL:  {mcp_url}")
-    print(f"Tools:    {len(MCP_TOOLS)}")
+    print(f"MCP URL:  {mcp_url}/mcp")
+    print(f"Tools:    {len(MCP_TOOLS)} allowed MCP tools")
     print()
 
     if agent_id:
-        # Update existing agent
         try:
-            agent = client.agents.update_agent(
-                agent_id,
-                model=args.model,
-                name=AGENT_NAME,
-                instructions=INSTRUCTIONS,
-                tools=mcp_tool.definitions,
+            agent = foundry_request(
+                project_endpoint, f"assistants/{agent_id}", token,
+                method="POST", body=agent_body,
             )
-            print(f"✓ Agent updated (id: {agent.id})")
-        except Exception as e:
-            if "NotFound" in str(e):
+            print(f"✓ Agent updated (id: {agent['id']})")
+        except RuntimeError as e:
+            if "404" in str(e) or "NotFound" in str(e):
                 print(f"  Agent {agent_id} not found, creating new one...")
                 agent_id = None
             else:
                 raise
 
     if not agent_id:
-        # Create new agent
-        agent = client.agents.create_agent(
-            model=args.model,
-            name=AGENT_NAME,
-            instructions=INSTRUCTIONS,
-            tools=mcp_tool.definitions,
+        agent = foundry_request(
+            project_endpoint, "assistants", token,
+            method="POST", body=agent_body,
         )
-        print(f"✓ Agent created (id: {agent.id})")
+        print(f"✓ Agent created (id: {agent['id']})")
 
-    # Save state for future updates
     save_state({
-        "agent_id": agent.id,
+        "agent_id": agent["id"],
         "model": args.model,
         "mcp_url": mcp_url,
         "tools": MCP_TOOLS,
     })
 
-    print(f"  Name:  {agent.name}")
-    print(f"  Model: {agent.model}")
+    print(f"  Name:  {agent.get('name')}")
+    print(f"  Model: {agent.get('model')}")
     print(f"  State: saved to {STATE_FILE}")
     print()
     print("Agent ID for auth-api config:")
-    print(f"  FOUNDRY_AGENT_ID={agent.id}")
+    print(f"  FOUNDRY_AGENT_ID={agent['id']}")
 
 
 if __name__ == "__main__":

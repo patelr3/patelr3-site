@@ -51,7 +51,7 @@ az deployment group create \
 # Then register/update agent:
 export PROJECT_ENDPOINT="https://patelr3-openai-1.services.ai.azure.com/api/projects/patelr3-prod-1"
 export MCP_SERVER_URL="https://patelr3-mcp-server.gentlebay-ad6f417d.westus2.azurecontainerapps.io"
-pip install azure-ai-projects azure-ai-agents azure-identity
+pip install azure-identity
 python scripts/setup-foundry-agent.py
 ```
 

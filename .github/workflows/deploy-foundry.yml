@@ -81,7 +81,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install azure-ai-projects azure-ai-agents azure-identity
+        run: pip install azure-identity
 
       - name: Get MCP server URL
         id: mcp
