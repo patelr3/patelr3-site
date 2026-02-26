@@ -7,6 +7,10 @@ on:
         description: 'Model deployment name'
         default: 'gpt-4.1'
         required: false
+      recreate:
+        description: 'Force creation of a new agent'
+        type: boolean
+        default: false
 
 permissions:
   id-token: write
@@ -100,7 +104,8 @@ jobs:
         run: |
           python scripts/setup-foundry-agent.py \
             --model "${{ github.event.inputs.model || 'gpt-4.1' }}" \
-            --mcp-url "${{ steps.mcp.outputs.url }}"
+            --mcp-url "${{ steps.mcp.outputs.url }}" \
+            ${{ github.event.inputs.recreate == 'true' && '--recreate' || '' }}
 
       - name: Store agent ID in Key Vault
         run: |
