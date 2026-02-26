@@ -76,7 +76,7 @@ def main():
 
     # Import SDK (deferred so --help works without SDK installed)
     from azure.ai.projects import AIProjectClient
-    from azure.ai.projects.models import PromptAgentDefinition, HostedMCPTool
+    from azure.ai.projects.models import PromptAgentDefinition, MCPTool
 
     credential = DefaultAzureCredential()
     project_client = AIProjectClient(
@@ -85,9 +85,10 @@ def main():
     )
 
     # Configure MCP tool
-    mcp_tool = HostedMCPTool(
+    mcp_tool = MCPTool(
+        server_label="actual-budget-mcp",
         server_url=f"{mcp_url}/mcp",
-        approval_mode="never",
+        require_approval="never",
     )
 
     # Create agent version (idempotent — new version if agent exists)
