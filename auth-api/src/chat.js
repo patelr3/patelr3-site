@@ -15,13 +15,12 @@ const router = Router();
 const FOUNDRY_ENDPOINT = config.foundryProjectEndpoint;
 const FOUNDRY_AGENT_NAME = config.foundryAgentName;
 
-// Use project-scoped endpoint with api-version (works with ai.azure.com token scope)
+// Foundry v1 endpoint: {project-endpoint}/openai/v1 (version embedded in path)
 function getOpenAIBaseUrl() {
   if (!FOUNDRY_ENDPOINT) return "";
-  return `${FOUNDRY_ENDPOINT.replace(/\/+$/, "")}/openai`;
+  return `${FOUNDRY_ENDPOINT.replace(/\/+$/, "")}/openai/v1`;
 }
 const OPENAI_BASE = getOpenAIBaseUrl();
-const API_VERSION = "2025-05-01-preview";
 
 // Summarization thresholds
 const SUMMARY_THRESHOLD = 10;  // summarize when > 10 messages
@@ -31,7 +30,7 @@ async function getAzureToken() {
   try {
     const { DefaultAzureCredential } = await import("@azure/identity");
     const credential = new DefaultAzureCredential();
-    const token = await credential.getToken("https://ai.azure.com/.default");
+    const token = await credential.getToken("https://cognitiveservices.azure.com/.default");
     return token.token;
   } catch (err) {
     console.error("[chat] Failed to get Azure token:", err.message);
@@ -41,8 +40,7 @@ async function getAzureToken() {
 
 async function foundryFetch(path, opts = {}) {
   const token = await getAzureToken();
-  const separator = path.includes("?") ? "&" : "?";
-  const url = `${OPENAI_BASE}${path}${separator}api-version=${API_VERSION}`;
+  const url = `${OPENAI_BASE}${path}`;
   console.log(`[chat] Foundry request: ${opts.method || "GET"} ${url}`);
   const res = await fetch(url, {
     ...opts,
