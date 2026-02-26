@@ -63,13 +63,38 @@ async function foundryFetch(path, opts = {}) {
 }
 
 // ── Health check ───────────────────────────────────────────────
-router.get("/health", (_req, res) => {
-  res.json({
+router.get("/health", async (_req, res) => {
+  const health = {
     configured: !!(FOUNDRY_ENDPOINT && FOUNDRY_AGENT_NAME),
     endpoint: FOUNDRY_ENDPOINT ? "set" : "missing",
     agentName: FOUNDRY_AGENT_NAME || "missing",
     api: "responses",
-  });
+    openaiBase: OPENAI_BASE || "not-set",
+  };
+
+  // Quick connectivity test (non-blocking)
+  try {
+    const testRes = await foundryFetch("/responses", {
+      method: "POST",
+      body: JSON.stringify({
+        input: "test",
+        model: "gpt-4.1",
+        store: false,
+        max_output_tokens: 5,
+      }),
+    });
+    health.foundryStatus = testRes.status;
+    if (!testRes.ok) {
+      const err = await testRes.text();
+      health.foundryError = err.substring(0, 300);
+    } else {
+      health.foundryStatus = "ok";
+    }
+  } catch (err) {
+    health.foundryError = err.message;
+  }
+
+  res.json(health);
 });
 
 // ── List user's chat threads ───────────────────────────────────
