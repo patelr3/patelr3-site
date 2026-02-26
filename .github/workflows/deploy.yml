@@ -363,8 +363,8 @@ jobs:
           CHAT_EP=$(echo "$CHAT_BODY" | grep -o '"endpoint":"set"' || echo "")
           if [ -n "$CHAT_EP" ]; then pass "Foundry endpoint is set"; else fail "Foundry endpoint" "missing"; fi
 
-          CHAT_AGENT=$(echo "$CHAT_BODY" | grep -o '"agentId":"set"' || echo "")
-          if [ -n "$CHAT_AGENT" ]; then pass "Foundry agent ID is set"; else fail "Foundry agent ID" "missing"; fi
+          CHAT_AGENT=$(echo "$CHAT_BODY" | grep -o '"agentName":"[^"]*"' | grep -v '"agentName":"missing"' || echo "")
+          if [ -n "$CHAT_AGENT" ]; then pass "Foundry agent name is set"; else fail "Foundry agent name" "missing"; fi
 
           # Create a thread and send a message
           THREAD_BODY=$(curl -s -X POST "$FRONTEND_URL/api/auth/chat/threads" \

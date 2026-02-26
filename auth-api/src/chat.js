@@ -22,7 +22,7 @@ const RECENT_MESSAGES_KEEP = 6; // keep last 6 messages verbatim
 async function getAzureToken() {
   const { DefaultAzureCredential } = await import("@azure/identity");
   const credential = new DefaultAzureCredential();
-  const token = await credential.getToken("https://ai.azure.com/.default");
+  const token = await credential.getToken("https://cognitiveservices.azure.com/.default");
   return token.token;
 }
 
@@ -152,7 +152,7 @@ async function maybeSummarize(threadId) {
       .join("\n");
 
     const summaryRes = await foundryFetch(
-      "/openai/responses?api-version=2025-05-01-preview",
+      "/openai/v1/responses",
       {
         method: "POST",
         body: JSON.stringify({
@@ -198,11 +198,11 @@ router.post("/threads/:threadId/messages", async (req, res) => {
   const threadId = Number(req.params.threadId);
 
   try {
-    // 1. Store user message in DB
-    await addChatMessage(threadId, "user", content);
-
-    // 2. Build input with summarization
+    // 1. Build input with summarization (BEFORE storing the new message)
     const input = await buildInput(threadId, content);
+
+    // 2. Store user message in DB
+    await addChatMessage(threadId, "user", content);
 
     // 3. Create response (streaming) via Responses API
     const userJwt = req.cookies.access_token;
@@ -216,14 +216,15 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
     // Add agent reference if configured
     if (FOUNDRY_AGENT_NAME) {
-      responseBody.agent_reference = {
+      responseBody.agent = {
         name: FOUNDRY_AGENT_NAME,
+        version: "1",
         type: "agent_reference",
       };
     }
 
     const runRes = await foundryFetch(
-      "/openai/responses?api-version=2025-05-01-preview",
+      "/openai/v1/responses",
       {
         method: "POST",
         headers: { Accept: "text/event-stream" },
@@ -233,7 +234,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
     if (!runRes.ok) {
       const err = await runRes.text();
-      console.error("[chat] Response creation failed:", err);
+      console.error(`[chat] Response creation failed (${runRes.status}):`, err);
       return res.status(502).json({ error: "Failed to run agent" });
     }
 
