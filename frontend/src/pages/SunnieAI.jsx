@@ -18,10 +18,26 @@ export default function SunnieAI({ user }) {
   const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
   const skipMessageFetchRef = useRef(false);
+  const layoutRef = useRef(null);
+  const [layoutHeight, setLayoutHeight] = useState(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Dynamically measure available height for the chat layout
+  useEffect(() => {
+    const updateHeight = () => {
+      if (layoutRef.current) {
+        const top = layoutRef.current.getBoundingClientRect().top;
+        const available = window.innerHeight - top - 16;
+        setLayoutHeight(Math.max(300, available));
+      }
+    };
+    updateHeight();
+    window.addEventListener("resize", updateHeight);
+    return () => window.removeEventListener("resize", updateHeight);
+  }, [showSettings]);
 
   // Check if AI service is configured
   useEffect(() => {
@@ -179,14 +195,33 @@ export default function SunnieAI({ user }) {
         return;
       }
 
-      // Parse SSE stream
+      // Parse SSE stream with inactivity timeout
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
       let assistantText = "";
+      const STREAM_TIMEOUT_MS = 90_000;
 
       while (true) {
-        const { done, value } = await reader.read();
+        const timeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), STREAM_TIMEOUT_MS),
+        );
+        let result;
+        try {
+          result = await Promise.race([reader.read(), timeout]);
+        } catch {
+          reader.cancel();
+          if (!assistantText) {
+            assistantText = "Response timed out. Please try again.";
+            setMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = { role: "assistant", content: assistantText };
+              return updated;
+            });
+          }
+          break;
+        }
+        const { done, value } = result;
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
@@ -299,7 +334,7 @@ export default function SunnieAI({ user }) {
         </div>
       )}
 
-      <div className="sunnieai-layout">
+      <div className="sunnieai-layout" ref={layoutRef} style={layoutHeight ? { height: `${layoutHeight}px` } : undefined}>
         {/* Thread sidebar */}
         <div className="sunnieai-sidebar">
           <button className="sunnieai-new-btn" onClick={createThread} disabled={loading}>

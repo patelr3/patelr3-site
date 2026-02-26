@@ -189,6 +189,8 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           assistant_id: FOUNDRY_AGENT_ID,
           stream: true,
           tool_resources: toolResources,
+          truncation_strategy: { type: "auto" },
+          max_completion_tokens: 4096,
         }),
       },
     );
@@ -209,8 +211,20 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     const decoder = new TextDecoder();
 
     try {
+      const STREAM_TIMEOUT_MS = 120_000;
       while (true) {
-        const { done, value } = await reader.read();
+        const timeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("stream_timeout")), STREAM_TIMEOUT_MS),
+        );
+        let result;
+        try {
+          result = await Promise.race([reader.read(), timeout]);
+        } catch {
+          console.error("[chat] Stream inactivity timeout");
+          reader.cancel();
+          break;
+        }
+        const { done, value } = result;
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         res.write(chunk);
