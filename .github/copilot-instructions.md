@@ -67,8 +67,8 @@ When making code changes to any service (frontend, auth-api, hello-world, nginx,
 All ACA secrets use Key Vault references (`keyVaultUrl` + user-assigned managed identity `patelr3-kv-reader`), not value-based secrets. This means:
 
 - **To rotate a secret:** Update it in AKV → ACAs auto-refresh within 30 minutes, or deploy a new revision to force immediate pickup.
-- **No GitHub Secrets needed for most values** — only `POSTGRES_PASSWORD` is still passed as a Bicep param (for the postgres container init).
-- **Cross-repo secrets** (e.g., `FINANCE_API_KEY`): Update AKV for patelr3-site ACAs, and also update the GitHub Secret in `patelr3/actual-server-setup` for the finance-api.
+- **No GitHub Secrets needed for app values** — `POSTGRES_PASSWORD` is fetched from AKV at deploy time (not from GitHub Secrets). All other secrets are AKV references.
+- **Cross-repo secrets** (e.g., `FINANCE_API_KEY`): Both `patelr3-site` and `actual-server-setup` ACAs reference the same AKV secret via KV refs. Update AKV once → both repos pick it up.
 
 | AKV Secret | Used By |
 |------------|---------|
@@ -101,3 +101,15 @@ Services are stored in the `services` Postgres table. Admin changes to `is_visib
 ## Related Repos
 
 - **[actual-server-setup](https://github.com/patelr3/actual-server-setup)** — Finance infrastructure: finance-api, per-user Actual Budget ACAs, MCP server, backup workflows.
+
+## Production Incident Response
+
+**Always use the `.github/agents/production-investigator.agent.md` custom agent to investigate and root-cause production errors.** Do not attempt ad-hoc debugging — the investigator has the architecture context, playbook, and common root causes needed to diagnose issues efficiently.
+
+After resolving an incident, **always update the production-investigator agent** with:
+- New root causes discovered (add to the common root causes table)
+- New diagnostic steps that proved useful
+- Updated architecture details if the fix changed infrastructure
+- Corrected any outdated information found during investigation
+
+This continuous improvement ensures the investigator becomes more accurate and faster over time.

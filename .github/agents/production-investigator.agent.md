@@ -263,7 +263,7 @@ curl -s https://www.arayosun.com/api/auth/oidc/.well-known/openid-configuration 
 | 404 "Container App stopped" | ACA scaled to zero or revision deactivated | Check replica count, activate revision |
 | "Upgrade Required" | Missing `proxy_http_version 1.1` in nginx | Add to `frontend/nginx.conf.template` |
 | Auth cookies not sent | `sameSite`/`secure` mismatch, cross-origin | Verify cookie config in `auth-api/src/app.js` |
-| "Could not reach deployment service" | finance-api rejecting API key | Rotate key: AKV → GitHub Secrets → redeploy both repos |
+| "Could not reach deployment service" | finance-api rejecting API key | Update key in AKV (`finance-api-key`); both repos use AKV refs, auto-refresh ≤ 30 min |
 | `DeploymentActive` error | Concurrent ARM deployments | Wait for active deploy to finish, then retry |
 | ACA secret not updating | Secrets need new revision to propagate | `az containerapp update --image` forces new revision |
 | 502 Bad Gateway | Upstream ACA not ready or wrong port | Check `targetPort` in Bicep, verify container is listening |
@@ -294,12 +294,11 @@ deploy-foundry.yml runs
 
 **Finance API key chain:**
 ```
-Key generated → stored in AKV (finance-api-key) + actual-server-setup GitHub Secret
+Key stored in AKV (finance-api-key)
   → patelr3-site ACAs read from AKV via KV ref (auto-refresh ≤ 30 min)
-  → actual-server-setup deploys finance-api with same key from its GitHub Secret
-  → auth-api and mcp-server can reach finance-api
-Note: finance-api is in a separate repo/RG — its key comes from GitHub Secrets, not AKV.
-If you rotate the key, update BOTH: AKV + actual-server-setup GitHub Secret.
+  → finance-api also reads from same AKV via KV ref + patelr3-kv-reader UAMI (cross-RG)
+  → All services share the same key source — no sync needed
+To rotate: update AKV secret → restart revisions or wait for auto-refresh.
 ```
 
 ## Report Format

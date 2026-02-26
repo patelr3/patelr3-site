@@ -101,6 +101,14 @@ jobs:
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Fetch secrets from Key Vault
+        id: secrets
+        run: |
+          KV_NAME="patelr3kvl3ytczhajsp7i"
+          PG_PASS=$(az keyvault secret show --vault-name "$KV_NAME" --name postgres-password --query value -o tsv)
+          echo "::add-mask::$PG_PASS"
+          echo "pg_password=$PG_PASS" >> "$GITHUB_OUTPUT"
+
       - name: Deploy Bicep
         run: |
           az deployment group create \
@@ -109,7 +117,7 @@ jobs:
             --parameters deployments/parameters.json \
             --parameters \
               imageTag="${{ env.IMAGE_TAG }}" \
-              postgresPassword="${{ secrets.POSTGRES_PASSWORD }}"
+              postgresPassword="${{ steps.secrets.outputs.pg_password }}"
 
       - name: Update container app revisions
         run: |
@@ -223,6 +231,40 @@ jobs:
           HW_SVC=$(echo "$HW_BODY" | grep -o '"service":"hello-world"' || echo "")
           if [ -n "$HW_SVC" ]; then pass "GET /api/hello/ returns service name"; else fail "GET /api/hello/" "unexpected: $HW_BODY"; fi
 
+          # ── MCP Server direct test (validates finance-api key) ───
+          echo ""
+          echo "MCP Server:"
+
+          # Extract JWT from cookie jar for MCP Authorization header
+          JWT=$(grep "access_token" "$COOKIE_JAR" | awk '{print $NF}')
+
+          # tools/list should return tools
+          MCP_LIST=$(curl -s -X POST "$FRONTEND_URL/api/mcp/mcp" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $JWT" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}')
+          TOOL_COUNT=$(echo "$MCP_LIST" | grep -o '"name"' | wc -l)
+          if [ "$TOOL_COUNT" -gt 10 ]; then
+            pass "MCP tools/list returns $TOOL_COUNT tools"
+          else
+            fail "MCP tools/list" "expected >10 tools, got: $MCP_LIST"
+          fi
+
+          # tools/call list_budgets — tests finance-api key connectivity
+          # citestuser has no AB instance, so we expect an error about deployment,
+          # NOT a 401 from finance-api. A 401 means the key is wrong.
+          MCP_CALL=$(curl -s -X POST "$FRONTEND_URL/api/mcp/mcp" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $JWT" \
+            -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_budgets","arguments":{}}}')
+          if echo "$MCP_CALL" | grep -q "401"; then
+            fail "MCP tools/call list_budgets" "finance-api key mismatch (401): $MCP_CALL"
+          elif echo "$MCP_CALL" | grep -q '"content"'; then
+            pass "MCP tools/call list_budgets (finance-api key works)"
+          else
+            fail "MCP tools/call list_budgets" "unexpected response: $MCP_CALL"
+          fi
+
           # ── SunnieAI chat health ───────────────────────────────
           echo ""
           echo "SunnieAI:"
@@ -253,10 +295,10 @@ jobs:
           fi
 
           if [ -n "$THREAD_ID" ]; then
-            MSG_BODY=$(curl -s --max-time 30 \
+            MSG_BODY=$(curl -s --max-time 60 \
               -X POST "$FRONTEND_URL/api/auth/chat/threads/$THREAD_ID/messages" \
               -H "Content-Type: application/json" \
-              -d '{"content":"Hello, what can you do?"}' \
+              -d '{"content":"List my budgets"}' \
               -b "$COOKIE_JAR" -w "\n__HTTP_STATUS__%{http_code}")
             MSG_STATUS=$(echo "$MSG_BODY" | grep '__HTTP_STATUS__' | sed 's/__HTTP_STATUS__//')
             MSG_STREAM=$(echo "$MSG_BODY" | grep -v '__HTTP_STATUS__')
