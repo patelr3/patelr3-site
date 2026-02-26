@@ -1,6 +1,13 @@
 # Copilot Agent Instructions
 
-## Documentation Maintenance
+## Documentation
+
+**Before making changes, read the `docs/` folder to understand the architecture:**
+
+- **docs/architecture.md** — Service architecture, request flows, database schema, environment variables, and CI/CD pipeline. Read this first to understand how services interact.
+- **docs/decision-records/** — Architectural decision records (e.g., DR0001 covers OIDC, MCP Server, and Foundry integration). Check these for rationale behind major design choices.
+- **docs/foundry-setup.md** — Azure AI Foundry setup guide for SunnieAI.
+- **docs/cloudflare-setup.md** — Domain and DNS configuration.
 
 **When making changes to the codebase, always update relevant documentation:**
 
@@ -29,9 +36,20 @@ When making code changes to any service (frontend, auth-api, hello-world, nginx,
    - MCP server tests: `npm test --prefix actual-server-setup/mcp-server`
 6. **Fix any issues** — If local tests fail, debug and fix before proceeding.
 7. **Only then push** — Once the local deployment is confirmed working, commit and push to `main`.
-8. **Leave the stack running** — Do not tear down after pushing.
+8. **Wait for CI/CD** — After pushing, monitor the GitHub Actions workflow (`deploy.yml`) until it completes successfully. If it fails, read the job logs, fix the issue, and push again. Keep iterating until the workflow passes.
+9. **Leave the stack running** — Do not tear down after pushing.
 
 **Do not push to main or trigger the GitHub Action unless the local deployment works as expected.**
+
+## Testing Requirements
+
+**Every new feature or bug fix must include associated tests.**
+
+- **Backend services** (auth-api, hello-world, hello-world-restricted): Add or update Jest tests in the service's `tests/` directory.
+- **MCP server**: Add or update tests in `actual-server-setup/mcp-server/tests/`.
+- **Integration**: If the change affects cross-service behavior, update `tests/integration.sh`.
+- Tests should cover both the happy path and relevant error cases.
+- Run all affected test suites before pushing to confirm they pass.
 
 ## Project Architecture
 
