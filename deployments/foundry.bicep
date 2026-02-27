@@ -30,14 +30,6 @@ param modelDeployments array = [
     skuName: 'Standard'
     capacity: 10
   }
-  {
-    name: 'gpt-5'
-    model: 'gpt-5'
-    format: 'OpenAI'
-    version: '2025-08-07'
-    skuName: 'Standard'
-    capacity: 10
-  }
 ]
 
 @description('Principal ID of auth-api managed identity (for RBAC grant)')
