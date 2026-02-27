@@ -2,6 +2,9 @@
 // Uses the new Foundry Responses API (not classic Assistants/Threads API).
 // Manages conversation history locally with rolling summarization.
 import { Router } from "express";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import config from "./config.js";
 import {
   createThread, getUserThreads, deleteThread,
@@ -16,19 +19,16 @@ const FOUNDRY_ENDPOINT = config.foundryProjectEndpoint;
 const FOUNDRY_AGENT_NAME = config.foundryAgentName;
 const MCP_SERVER_URL = config.mcpServerUrl;
 
-// Agent instructions (must match scripts/setup-foundry-agent.py)
+// Agent instructions: short role prompt + domain knowledge from markdown file
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const AGENT_KNOWLEDGE = readFileSync(join(__dirname, "agent-knowledge.md"), "utf-8");
 const AGENT_INSTRUCTIONS =
   "You are SunnieAI, a personal finance assistant. " +
   "You have access to the user's Actual Budget data through MCP tools. " +
   "Use the available tools to help manage budgets, accounts, transactions, " +
-  "categories, and more. Always start by listing budgets and loading one " +
-  "before performing other operations. " +
-  "IMPORTANT: All monetary amounts from the API are in CENTS (integer). " +
-  "Divide by 100 to display dollars (e.g. 150000 = $1,500.00). " +
-  "When creating or updating transactions, convert dollars to cents (multiply by 100). " +
-  "Be precise with monetary amounts and dates. " +
-  "Confirm destructive actions before executing. " +
-  "Be friendly, concise, and helpful.";
+  "categories, and more. Be friendly, concise, and helpful. " +
+  "Confirm destructive actions before executing.\n\n" +
+  AGENT_KNOWLEDGE;
 
 // Foundry v1 endpoint: {project-endpoint}/openai/v1 (version embedded in path)
 function getOpenAIBaseUrl() {
