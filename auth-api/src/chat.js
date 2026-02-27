@@ -274,50 +274,39 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
     // 3. Create response (streaming) via Responses API
     const userJwt = req.cookies.access_token;
-    const responseBody = {
-      input,
-      model: "gpt-5.2-chat",
-      instructions: getAgentInstructions(),
-      stream: true,
-      store: false,
-      max_output_tokens: 16384,
-    };
 
-    // Pass MCP tool with user's JWT so Foundry forwards auth to the MCP server.
-    // Cannot use agent_reference + tools together, so we pass everything inline.
+    // Build MCP tools config once — reused across retries/continuations
+    const mcpTools = [];
     if (MCP_SERVER_URL && userJwt) {
-      responseBody.tools = [
-        {
-          type: "mcp",
-          server_label: "actual-budget-mcp",
-          server_url: `${MCP_SERVER_URL.replace(/\/+$/, "")}/mcp`,
-          headers: { Authorization: `Bearer ${userJwt}` },
-          require_approval: "never",
-        },
-      ];
-    } else if (FOUNDRY_AGENT_NAME) {
-      // Fallback: use registered agent (no per-user MCP auth)
-      responseBody.agent_reference = {
-        name: FOUNDRY_AGENT_NAME,
-        version: "1",
-        type: "agent_reference",
-      };
+      mcpTools.push({
+        type: "mcp",
+        server_label: "actual-budget-mcp",
+        server_url: `${MCP_SERVER_URL.replace(/\/+$/, "")}/mcp`,
+        headers: { Authorization: `Bearer ${userJwt}` },
+        require_approval: "never",
+      });
     }
 
-    const runRes = await foundryFetch(
-      "/responses",
-      {
-        method: "POST",
-        headers: { Accept: "text/event-stream" },
-        body: JSON.stringify(responseBody),
-      },
-    );
-
-    if (!runRes.ok) {
-      const err = await runRes.text();
-      console.error(`[chat] Response creation failed (${runRes.status}):`, err);
-      const detail = err.substring(0, 500);
-      return res.status(503).json({ error: "Failed to run agent", upstream_status: runRes.status, detail });
+    function buildResponseBody(inputData, extraOpts = {}) {
+      const body = {
+        input: inputData,
+        model: "gpt-5.2-chat",
+        instructions: getAgentInstructions(),
+        stream: true,
+        store: false,
+        max_output_tokens: 16384,
+        ...extraOpts,
+      };
+      if (mcpTools.length > 0) {
+        body.tools = mcpTools;
+      } else if (FOUNDRY_AGENT_NAME) {
+        body.agent_reference = {
+          name: FOUNDRY_AGENT_NAME,
+          version: "1",
+          type: "agent_reference",
+        };
+      }
+      return body;
     }
 
     // 4. Stream SSE response to client
@@ -326,31 +315,37 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
-    const reader = runRes.body.getReader();
-    const decoder = new TextDecoder();
     let assistantText = "";
-    let sseBuffer = ""; // buffer partial SSE lines across chunks
 
     // Send SSE heartbeat every 15s to keep proxies from closing the connection
     const heartbeat = setInterval(() => {
       try { res.write(":heartbeat\n\n"); } catch { /* client gone */ }
     }, 15_000);
 
-    try {
-      const STREAM_TIMEOUT_MS = 300_000;
+    // Helper: stream one Foundry response, forwarding SSE to client.
+    // Returns { responseId, status, output, error, assistantChunk }.
+    const STREAM_TIMEOUT_MS = 300_000;
+    async function streamFoundryResponse(foundryRes, label = "main") {
+      const reader = foundryRes.body.getReader();
+      const decoder = new TextDecoder();
+      let sseBuffer = "";
       let responseId = null;
-      let lastResponseStatus = null;
-      let lastResponseOutput = [];
+      let status = null;
+      let output = [];
+      let lastError = null;
+      let textChunk = "";
 
       while (true) {
-        const timeout = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("stream_timeout")), STREAM_TIMEOUT_MS),
-        );
         let result;
         try {
-          result = await Promise.race([reader.read(), timeout]);
+          result = await Promise.race([
+            reader.read(),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("stream_timeout")), STREAM_TIMEOUT_MS),
+            ),
+          ]);
         } catch {
-          console.error("[chat] Stream inactivity timeout");
+          console.error(`[chat] Stream timeout (${label})`);
           reader.cancel();
           break;
         }
@@ -358,148 +353,162 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
 
-        // Parse SSE — buffer partial lines so events split across chunks
-        // are not dropped (fixes response.completed being silently lost).
         sseBuffer += chunk;
         const sseLines = sseBuffer.split("\n");
-        sseBuffer = sseLines.pop() || ""; // keep last (possibly incomplete) line
+        sseBuffer = sseLines.pop() || "";
 
         for (const line of sseLines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6);
-            if (data === "[DONE]") continue;
-            try {
-              const event = JSON.parse(data);
-              // New Responses API format
-              if (event.type === "response.output_text.delta" && event.delta) {
-                assistantText += event.delta;
-              }
-              // Classic format fallback
-              const classicDelta = event?.delta?.content?.[0]?.text?.value;
-              if (classicDelta) {
-                assistantText += classicDelta;
-              }
-              // Track response completion status for multi-turn continuation
-              if (event.type === "response.completed" && event.response) {
-                responseId = event.response.id;
-                lastResponseStatus = event.response.status;
-                lastResponseOutput = event.response.output || [];
-                console.log(`[chat] Response completed: id=${responseId} status=${lastResponseStatus} outputs=${lastResponseOutput.length}`);
-                for (const item of lastResponseOutput) {
-                  console.log(`[chat]   output item: type=${item.type} ${item.type === "mcp_call" ? `name=${item.name} server=${item.server_label}` : ""}`);
-                }
-              }
-              // Log important events for debugging
-              if (event.type && !event.type.includes("delta")) {
-                console.log(`[chat] SSE event: ${event.type}`);
-              }
-            } catch {
-              // skip unparseable SSE lines
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6);
+          if (data === "[DONE]") continue;
+          try {
+            const event = JSON.parse(data);
+            // Collect text
+            if (event.type === "response.output_text.delta" && event.delta) {
+              textChunk += event.delta;
             }
+            const classicDelta = event?.delta?.content?.[0]?.text?.value;
+            if (classicDelta) textChunk += classicDelta;
+
+            // Track completion
+            if (event.type === "response.completed" && event.response) {
+              responseId = event.response.id;
+              status = event.response.status;
+              output = event.response.output || [];
+              console.log(`[chat] Response completed (${label}): id=${responseId} status=${status} outputs=${output.length}`);
+              for (const item of output) {
+                console.log(`[chat]   output: type=${item.type}${item.type === "mcp_call" ? ` name=${item.name}` : ""}`);
+              }
+            }
+
+            // Track failures — capture full error detail
+            if (event.type === "error") {
+              lastError = event.error || event;
+              console.error(`[chat] SSE error event (${label}):`, JSON.stringify(lastError).substring(0, 500));
+            }
+            if (event.type === "response.failed" && event.response) {
+              responseId = event.response.id;
+              status = "failed";
+              output = event.response.output || [];
+              const errDetail = event.response.error || event.response.last_error || lastError;
+              console.error(`[chat] Response FAILED (${label}): id=${responseId} error=${JSON.stringify(errDetail).substring(0, 500)} outputs=${output.length}`);
+            }
+
+            // Log MCP call details
+            if (event.type === "response.mcp_call.in_progress" && event.item) {
+              console.log(`[chat] MCP call starting (${label}): name=${event.item.name || "?"} server=${event.item.server_label || "?"}`);
+            }
+
+            // Log non-delta events
+            if (event.type && !event.type.includes("delta")) {
+              console.log(`[chat] SSE event (${label}): ${event.type}`);
+            }
+          } catch {
+            // skip unparseable
           }
         }
 
         res.write(chunk);
       }
 
-      // Auto-continue if: (a) response hit token limit (status=incomplete),
-      // or (b) response ended with only tool outputs and no text.
-      // Loop to support multi-turn tool-call chains.
-      let continuationRound = 0;
-      const MAX_CONTINUATIONS = 5;
+      return { responseId, status, output, error: lastError, assistantChunk: textChunk };
+    }
 
-      while (responseId && continuationRound < MAX_CONTINUATIONS) {
-        const hasToolOutput = lastResponseOutput.some(o => o.type === "mcp_call");
-        const hasTextOutput = lastResponseOutput.some(o => o.type === "message" || o.type === "text");
-        const needsContinuation =
-          lastResponseStatus === "incomplete" ||
-          (hasToolOutput && !hasTextOutput);
+    try {
+      const MAX_ATTEMPTS = 3;
+      let currentInput = input;
+      let attempt = 0;
 
-        if (!needsContinuation) break;
-        continuationRound++;
-        console.log(`[chat] Continuation #${continuationRound}: status=${lastResponseStatus} outputs=${lastResponseOutput.length}`);
+      for (attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const label = attempt === 0 ? "main" : `retry#${attempt}`;
+        const body = buildResponseBody(currentInput);
 
-        // Reset tracking for this round
-        const prevResponseId = responseId;
-        responseId = null;
-        lastResponseStatus = null;
-        lastResponseOutput = [];
+        const runRes = await foundryFetch("/responses", {
+          method: "POST",
+          headers: { Accept: "text/event-stream" },
+          body: JSON.stringify(body),
+        });
 
-        try {
+        if (!runRes.ok) {
+          const err = await runRes.text();
+          console.error(`[chat] Response creation failed (${label}, ${runRes.status}):`, err.substring(0, 500));
+          if (attempt < MAX_ATTEMPTS - 1 && runRes.status === 429) {
+            console.log(`[chat] Rate limited, waiting 5s before retry`);
+            await new Promise(r => setTimeout(r, 5000));
+            continue;
+          }
+          if (!res.headersSent || res.getHeader("Content-Type") === "text/event-stream") {
+            // Already in SSE mode from a prior attempt — send error as text
+            const errMsg = "\n\n⚠️ I encountered an error. Please try again.";
+            assistantText += errMsg;
+            res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
+          }
+          break;
+        }
+
+        const result = await streamFoundryResponse(runRes, label);
+        assistantText += result.assistantChunk;
+
+        if (result.status === "failed") {
+          console.error(`[chat] Response failed on attempt ${attempt + 1}, error: ${JSON.stringify(result.error).substring(0, 300)}`);
+          if (attempt < MAX_ATTEMPTS - 1) {
+            // Wait briefly, then retry with same input
+            console.log(`[chat] Retrying after failure (attempt ${attempt + 2}/${MAX_ATTEMPTS})`);
+            await new Promise(r => setTimeout(r, 2000));
+            // Send a status event so the frontend shows retry activity
+            res.write(`data: ${JSON.stringify({ type: "response.in_progress" })}\n\n`);
+            continue;
+          }
+          // Final attempt failed — tell the user
+          const errMsg = "\n\n⚠️ I had trouble completing that request. Could you try rephrasing or breaking it into smaller questions?";
+          assistantText += errMsg;
+          res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
+          break;
+        }
+
+        // Handle continuation (incomplete or tool-only output)
+        let responseId = result.responseId;
+        let lastStatus = result.status;
+        let lastOutput = result.output;
+        let continuationRound = 0;
+        const MAX_CONTINUATIONS = 5;
+
+        while (responseId && continuationRound < MAX_CONTINUATIONS) {
+          const hasToolOutput = lastOutput.some(o => o.type === "mcp_call");
+          const hasTextOutput = lastOutput.some(o => o.type === "message" || o.type === "text");
+          const needsContinuation =
+            lastStatus === "incomplete" ||
+            (hasToolOutput && !hasTextOutput);
+          if (!needsContinuation) break;
+
+          continuationRound++;
+          console.log(`[chat] Continuation #${continuationRound}: status=${lastStatus} outputs=${lastOutput.length}`);
+
           const contRes = await foundryFetch("/responses", {
             method: "POST",
             headers: { Accept: "text/event-stream" },
-            body: JSON.stringify({
-              input: [{ type: "response", id: prevResponseId }],
-              model: "gpt-5.2-chat",
-              instructions: getAgentInstructions(),
-              stream: true,
-              store: false,
-              max_output_tokens: 16384,
-              tools: responseBody.tools,
-            }),
+            body: JSON.stringify(buildResponseBody(
+              [{ type: "response", id: responseId }],
+            )),
           });
           if (!contRes.ok) {
             console.error(`[chat] Continuation #${continuationRound} failed: ${contRes.status}`);
             break;
           }
-          const contReader = contRes.body.getReader();
-          const contDecoder = new TextDecoder();
-          let contSseBuffer = "";
-          while (true) {
-            let contResult;
-            try {
-              contResult = await Promise.race([
-                contReader.read(),
-                new Promise((_, reject) =>
-                  setTimeout(() => reject(new Error("cont_timeout")), STREAM_TIMEOUT_MS),
-                ),
-              ]);
-            } catch {
-              console.error(`[chat] Continuation #${continuationRound} stream timeout`);
-              contReader.cancel();
-              break;
-            }
-            const { done: contDone, value: contValue } = contResult;
-            if (contDone) break;
-            const contChunk = contDecoder.decode(contValue, { stream: true });
-            contSseBuffer += contChunk;
-            const contLines = contSseBuffer.split("\n");
-            contSseBuffer = contLines.pop() || "";
-            for (const line of contLines) {
-              if (line.startsWith("data: ")) {
-                const data = line.slice(6);
-                if (data === "[DONE]") continue;
-                try {
-                  const event = JSON.parse(data);
-                  if (event.type === "response.output_text.delta" && event.delta) {
-                    assistantText += event.delta;
-                  }
-                  if (event.type === "response.completed" && event.response) {
-                    responseId = event.response.id;
-                    lastResponseStatus = event.response.status;
-                    lastResponseOutput = event.response.output || [];
-                    console.log(`[chat] Continuation #${continuationRound} completed: id=${responseId} status=${lastResponseStatus} outputs=${lastResponseOutput.length}`);
-                  }
-                  if (event.type && !event.type.includes("delta")) {
-                    console.log(`[chat] SSE event (cont#${continuationRound}): ${event.type}`);
-                  }
-                } catch { /* skip */ }
-              }
-            }
-            res.write(contChunk);
-          }
-        } catch (contErr) {
-          console.error(`[chat] Continuation #${continuationRound} error:`, contErr);
-          break;
-        }
-      }
+          const contResult = await streamFoundryResponse(contRes, `cont#${continuationRound}`);
+          assistantText += contResult.assistantChunk;
+          responseId = contResult.responseId;
+          lastStatus = contResult.status;
+          lastOutput = contResult.output;
 
-      // Diagnostic: log if stream ended without response.completed
-      if (!responseId && !assistantText) {
-        console.warn("[chat] Stream ended without response.completed and no text collected");
-      } else if (!responseId && assistantText) {
-        console.warn("[chat] Stream ended without response.completed (text was collected, possible chunk-split)");
+          if (contResult.status === "failed") {
+            console.error(`[chat] Continuation #${continuationRound} failed`);
+            break;
+          }
+        }
+
+        // If we reached here without failure, we're done
+        if (result.status !== "failed") break;
       }
     } catch (streamErr) {
       console.error("[chat] Stream error:", streamErr);
