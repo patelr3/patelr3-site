@@ -34,7 +34,7 @@ param modelDeployments array = [
     name: 'gpt-5.2'
     model: 'gpt-5.2'
     format: 'OpenAI'
-    version: '2'
+    version: '2025-12-11'
     skuName: 'Standard'
     capacity: 10
   }
