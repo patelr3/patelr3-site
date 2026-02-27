@@ -77,6 +77,31 @@ module cae 'modules/container-apps-env.bicep' = {
   }
 }
 
+// ── Application Insights (shared by all services) ──────────────
+module appInsights 'modules/app-insights.bicep' = {
+  name: 'app-insights'
+  params: {
+    name: '${projectName}-appinsights'
+    location: location
+    tags: tags
+    logAnalyticsWorkspaceId: cae.outputs.logAnalyticsWorkspaceId
+  }
+}
+
+// ── Store App Insights connection string in Key Vault ───────────
+resource kvRef 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: kvName
+}
+
+resource appInsightsSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: kvRef
+  name: 'appinsights-connection-string'
+  properties: {
+    value: appInsights.outputs.connectionString
+  }
+  dependsOn: [keyVault]
+}
+
 // ── Postgres Container App ─────────────────────────────────────
 module postgres 'modules/postgres.bicep' = {
   name: 'postgres'
@@ -121,6 +146,9 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'FOUNDRY_AGENT_NAME', secretRef: 'foundry-agent-name' }
       { name: 'FOUNDRY_AGENT_ID', secretRef: 'foundry-agent-id' }
       { name: 'MCP_SERVER_URL', value: 'https://${projectName}-mcp-server.${cae.outputs.defaultDomain}' }
+      { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
+      { name: 'OTEL_SERVICE_NAME', value: 'auth-api' }
+      { name: 'OTEL_EXPORTER_OTLP_ENDPOINT', value: 'http://${projectName}-jaeger:4318' }
     ]
     secrets: [
       { name: 'google-client-id', keyVaultUrl: '${kvSecretsUrl}/google-client-id', identity: kvReaderIdentity.id }
@@ -131,6 +159,7 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'foundry-project-endpoint', keyVaultUrl: '${kvSecretsUrl}/foundry-project-endpoint', identity: kvReaderIdentity.id }
       { name: 'foundry-agent-name', keyVaultUrl: '${kvSecretsUrl}/foundry-agent-name', identity: kvReaderIdentity.id }
       { name: 'foundry-agent-id', keyVaultUrl: '${kvSecretsUrl}/foundry-agent-id', identity: kvReaderIdentity.id }
+      { name: 'appinsights-connection-string', keyVaultUrl: '${kvSecretsUrl}/appinsights-connection-string', identity: kvReaderIdentity.id }
     ]
   }
 }
@@ -153,9 +182,13 @@ module helloWorld 'modules/container-app.bicep' = {
     env: [
       { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
       { name: 'FRONTEND_URL', value: frontendUrl }
+      { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
+      { name: 'OTEL_SERVICE_NAME', value: 'hello-world' }
+      { name: 'OTEL_EXPORTER_OTLP_ENDPOINT', value: 'http://${projectName}-jaeger:4318' }
     ]
     secrets: [
       { name: 'jwt-secret', keyVaultUrl: '${kvSecretsUrl}/jwt-secret', identity: kvReaderIdentity.id }
+      { name: 'appinsights-connection-string', keyVaultUrl: '${kvSecretsUrl}/appinsights-connection-string', identity: kvReaderIdentity.id }
     ]
   }
 }
@@ -178,9 +211,13 @@ module helloWorldRestricted 'modules/container-app.bicep' = {
     env: [
       { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
       { name: 'FRONTEND_URL', value: frontendUrl }
+      { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
+      { name: 'OTEL_SERVICE_NAME', value: 'hello-world-restricted' }
+      { name: 'OTEL_EXPORTER_OTLP_ENDPOINT', value: 'http://${projectName}-jaeger:4318' }
     ]
     secrets: [
       { name: 'jwt-secret', keyVaultUrl: '${kvSecretsUrl}/jwt-secret', identity: kvReaderIdentity.id }
+      { name: 'appinsights-connection-string', keyVaultUrl: '${kvSecretsUrl}/appinsights-connection-string', identity: kvReaderIdentity.id }
     ]
   }
 }
@@ -205,11 +242,52 @@ module mcpServer 'modules/container-app.bicep' = {
       { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
       { name: 'FINANCE_API_URL', value: 'https://finance-api.${financeCaeDomain}' }
       { name: 'FINANCE_API_KEY', secretRef: 'finance-api-key' }
+      { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
+      { name: 'OTEL_SERVICE_NAME', value: 'mcp-server' }
+      { name: 'OTEL_EXPORTER_OTLP_ENDPOINT', value: 'http://${projectName}-jaeger:4318' }
     ]
     secrets: [
       { name: 'jwt-secret', keyVaultUrl: '${kvSecretsUrl}/jwt-secret', identity: kvReaderIdentity.id }
       { name: 'finance-api-key', keyVaultUrl: '${kvSecretsUrl}/finance-api-key', identity: kvReaderIdentity.id }
+      { name: 'appinsights-connection-string', keyVaultUrl: '${kvSecretsUrl}/appinsights-connection-string', identity: kvReaderIdentity.id }
     ]
+  }
+}
+
+// ── Jaeger Container App (internal, for production trace viewing) ──
+resource jaeger 'Microsoft.App/containerApps@2024-03-01' = {
+  name: '${projectName}-jaeger'
+  location: location
+  tags: tags
+  properties: {
+    managedEnvironmentId: cae.outputs.id
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        external: false
+        targetPort: 16686
+        transport: 'auto'
+      }
+    }
+    template: {
+      containers: [
+        {
+          name: 'jaeger'
+          image: 'jaegertracing/all-in-one:latest'
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+          env: [
+            { name: 'COLLECTOR_OTLP_ENABLED', value: 'true' }
+          ]
+        }
+      ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 1
+      }
+    }
   }
 }
 
@@ -273,3 +351,5 @@ output helloWorldFqdn string = helloWorld.outputs.fqdn
 output helloWorldRestrictedFqdn string = helloWorldRestricted.outputs.fqdn
 output mcpServerFqdn string = mcpServer.outputs.fqdn
 output environmentDomain string = cae.outputs.defaultDomain
+output appInsightsName string = appInsights.outputs.name
+output appInsightsId string = appInsights.outputs.id

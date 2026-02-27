@@ -50,11 +50,27 @@ When making code changes to any service (frontend, auth-api, hello-world, nginx,
 - Tests should cover both the happy path and relevant error cases.
 - Run all affected test suites before pushing to confirm they pass.
 
+## Infrastructure as Code
+
+**All deployment and infrastructure code should be automated via Bicep if possible.** Prefer Bicep templates over manual Azure CLI commands or portal configurations. This ensures deployments are reproducible, version-controlled, and reviewable.
+
+## Observability & Logging
+
+**All backend services use OpenTelemetry for distributed tracing and pino for structured logging.**
+
+- **Shared tracing package**: `packages/tracing/` provides `initTracing()`, `createLogger()`, `requestIdMiddleware()`, and `httpLogger()`. All services use this as a `file:` dependency.
+- **Structured logging**: Use pino (`createLogger('service-name')`) instead of `console.log`. All log lines include trace context (traceId, spanId) and request IDs.
+- **Request ID propagation**: Nginx generates `X-Request-Id` via `$request_id` and propagates it to all upstreams. Services read and forward this header.
+- **W3C Trace Context**: `traceparent` and `tracestate` headers are propagated through nginx to all services. Browser traces link to backend traces via the same mechanism.
+- **Local traces**: Jaeger UI at `http://localhost:16686`. All services export traces via OTLP to Jaeger.
+- **Production traces**: Traces go to both Jaeger (ACA) and Azure Application Insights. Foundry agent traces are visible in the Foundry portal Traces tab.
+- **Test environment**: Set `LOG_LEVEL=silent` in test scripts to suppress pino output. Tests import `app.js` directly (skipping `initTracing()`).
+
 ## Project Architecture
 
 - **Local dev** uses Nginx as a reverse proxy (all services on `localhost:80`). The frontend container also runs its own nginx with API proxy.
 - **Production (ACA)** has no separate Nginx — the frontend container's nginx serves the SPA and reverse-proxies `/api/*` requests to backend ACAs (same-origin, no CORS needed).
-- `docker-compose.yml` orchestrates 7 services: nginx, frontend, auth-api, mcp-server, hello-world, hello-world-restricted, postgres.
+- `docker-compose.yml` orchestrates 8 services: nginx, frontend, auth-api, mcp-server, hello-world, hello-world-restricted, postgres, jaeger.
 - Environment variables come from `.env` (see `.env.example` for the template).
 - auth-api proxies deployment requests to the finance-api in patelr3/actual-server-setup.
 - auth-api also acts as an OIDC Identity Provider for ActualBudget instances (wraps Google OAuth).
@@ -78,6 +94,7 @@ All ACA secrets use Key Vault references (`keyVaultUrl` + user-assigned managed 
 | `finance-api-key` | auth-api, mcp-server |
 | `foundry-project-endpoint`, `foundry-agent-id` | auth-api |
 | `postgres-password` | postgres (Bicep param) |
+| `appinsights-connection-string` | auth-api, hello-world, hello-world-restricted, mcp-server |
 
 ## Service Visibility
 
@@ -97,6 +114,7 @@ Services are stored in the `services` Postgres table. Admin changes to `is_visib
 | MCP server tests | `npm test --prefix actual-server-setup/mcp-server` |
 | Integration tests | `bash tests/integration.sh` |
 | Copilot CLI | `copilot` (authenticate with `/login` on first use) |
+| View traces | Open Jaeger UI at `http://localhost:16686` |
 
 ## Related Repos
 

@@ -7,6 +7,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import config from "./config.js";
+import { createLogger, requestIdMiddleware, httpLogger } from "@patelr3/tracing";
 import {
   upsertGoogleUser, findUserByEmail, createLocalUser,
   listServices, getServiceBySlug, updateService,
@@ -18,7 +19,11 @@ import {
 import oidcRouter from "./oidc.js";
 import chatRouter from "./chat.js";
 
+const logger = createLogger("auth-api");
+
 const app = express();
+app.use(requestIdMiddleware(logger));
+app.use(httpLogger(logger));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
@@ -370,7 +375,7 @@ app.post("/auth/forgot-password", async (req, res) => {
 
   // In production you'd email this link. For now, log and return it.
   const resetUrl = `${config.frontendUrl}/reset-password?token=${token}`;
-  console.log(`Password reset link for ${email}: ${resetUrl}`);
+  logger.info({ email }, "Password reset link generated");
   res.json({ success: true, resetUrl });
 });
 
@@ -442,7 +447,7 @@ app.use("/auth/chat", requireAuth, chatRouter);
 async function financeRequest(method, userId, body) {
   if (!config.financeApiUrl) return { status: "not_configured" };
   const url = `${config.financeApiUrl}/deployments/${userId}`;
-  console.log(`[finance-proxy] ${method} ${url}`);
+  logger.info({ method, url }, "Finance API request");
   const opts = {
     method,
     headers: { "X-Api-Key": config.financeApiKey, "Content-Type": "application/json" },
@@ -451,7 +456,7 @@ async function financeRequest(method, userId, body) {
   const res = await fetch(url, opts);
   const data = await res.json();
   if (!res.ok) {
-    console.error(`[finance-proxy] ${method} ${url} → ${res.status}`, data);
+    logger.error({ method, url, status: res.status, data }, "Finance API error");
     throw new Error(data.message || data.error || `Finance API ${res.status}`);
   }
   return data;

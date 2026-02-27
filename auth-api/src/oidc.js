@@ -5,7 +5,9 @@ import crypto from "crypto";
 import { importPKCS8, exportJWK, SignJWT, generateKeyPair } from "jose";
 import config from "./config.js";
 import { storeOidcAuthCode, consumeOidcAuthCode, findUserById } from "./db.js";
+import { createLogger } from "@patelr3/tracing";
 
+const logger = createLogger("auth-api:oidc");
 const router = Router();
 
 // ── RSA key pair for signing ID tokens ────────────────────────
@@ -123,7 +125,7 @@ router.get("/callback", async (req, res) => {
 
     if (!tokenRes.ok) {
       const err = await tokenRes.text();
-      console.error("[oidc] Google token exchange failed:", err);
+      logger.error({ err }, "Google token exchange failed");
       return res.status(502).json({ error: "google_token_exchange_failed" });
     }
 
@@ -168,7 +170,7 @@ router.get("/callback", async (req, res) => {
     if (pending.state) redirectUrl.searchParams.set("state", pending.state);
     res.redirect(redirectUrl.toString());
   } catch (err) {
-    console.error("[oidc] Callback error:", err);
+    logger.error({ err }, "Callback error");
     res.status(500).json({ error: "internal_error" });
   }
 });

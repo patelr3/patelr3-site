@@ -6,13 +6,14 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "NODE_OPTIONS='--experimental-vm-modules' npx jest --forceExit"
+    "test": "LOG_LEVEL=silent NODE_OPTIONS='--experimental-vm-modules' npx jest --forceExit"
   },
   "jest": {
     "transform": {},
     "testEnvironment": "node"
   },
   "dependencies": {
+    "@patelr3/tracing": "file:../packages/tracing",
     "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.2"

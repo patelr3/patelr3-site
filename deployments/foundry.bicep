@@ -35,6 +35,9 @@ param modelDeployments array = [
 @description('Principal ID of auth-api managed identity (for RBAC grant)')
 param authApiPrincipalId string = ''
 
+@description('Application Insights resource ID (for agent tracing)')
+param appInsightsResourceId string = ''
+
 // ── Variables ──────────────────────────────────────────────────
 var tags = {
   project: 'patelr3'
@@ -81,6 +84,9 @@ resource modelDeploy 'Microsoft.CognitiveServices/accounts/deployments@2024-10-0
 ]
 
 // ── AI Foundry Project ─────────────────────────────────────────
+// NOTE: Application Insights must be connected to this project via the Foundry
+// portal (Tracing → Connect) or az CLI after deployment. The appInsightsResourceId
+// parameter is passed to the deploy workflow for use in the connection step.
 resource aiProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview' = {
   name: projectName
   parent: aiServices

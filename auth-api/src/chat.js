@@ -6,11 +6,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import config from "./config.js";
+import { createLogger } from "@patelr3/tracing";
 import {
   createThread, getUserThreads, deleteThread,
   addChatMessage, getChatMessages, getChatMessageCount,
   updateThreadSummary, getThreadSummary,
 } from "./db.js";
+
+const logger = createLogger("auth-api:chat");
 
 const router = Router();
 
@@ -48,7 +51,7 @@ async function getAzureToken() {
     const token = await credential.getToken("https://ai.azure.com/.default");
     return token.token;
   } catch (err) {
-    console.error("[chat] Failed to get Azure token:", err.message);
+    logger.error({ err: err.message }, "Failed to get Azure token");
     throw err;
   }
 }
@@ -56,7 +59,7 @@ async function getAzureToken() {
 async function foundryFetch(path, opts = {}) {
   const token = await getAzureToken();
   const url = `${OPENAI_BASE}${path}`;
-  console.log(`[chat] Foundry request: ${opts.method || "GET"} ${url}`);
+  logger.info({ method: opts.method || "GET", url }, "Foundry request");
   const res = await fetch(url, {
     ...opts,
     headers: {
@@ -65,7 +68,7 @@ async function foundryFetch(path, opts = {}) {
       ...opts.headers,
     },
   });
-  console.log(`[chat] Foundry response: ${res.status} ${res.statusText}`);
+  logger.info({ status: res.status, statusText: res.statusText }, "Foundry response");
   return res;
 }
 
@@ -110,7 +113,7 @@ router.get("/threads", async (req, res) => {
     const threads = await getUserThreads(Number(req.jwtUser.sub));
     res.json(threads);
   } catch (err) {
-    console.error("[chat] Failed to list threads:", err);
+    logger.error({ err }, "Failed to list threads");
     res.status(500).json({ error: "Failed to list threads" });
   }
 });
@@ -125,7 +128,7 @@ router.post("/threads", async (req, res) => {
     );
     res.status(201).json(thread);
   } catch (err) {
-    console.error("[chat] Thread creation error:", err);
+    logger.error({ err }, "Thread creation error");
     res.status(500).json({ error: "Failed to create thread" });
   }
 });
@@ -140,7 +143,7 @@ router.delete("/threads/:threadId", async (req, res) => {
     if (!deleted) return res.status(404).json({ error: "Thread not found" });
     res.json({ success: true });
   } catch (err) {
-    console.error("[chat] Thread deletion error:", err);
+    logger.error({ err }, "Thread deletion error");
     res.status(500).json({ error: "Failed to delete thread" });
   }
 });
@@ -156,7 +159,7 @@ router.get("/threads/:threadId/messages", async (req, res) => {
     }));
     res.json({ data });
   } catch (err) {
-    console.error("[chat] Get messages error:", err);
+    logger.error({ err }, "Get messages error");
     res.status(500).json({ error: "Failed to get messages" });
   }
 });
@@ -234,7 +237,7 @@ async function maybeSummarize(threadId) {
       }
     }
   } catch (err) {
-    console.error("[chat] Summarization failed (non-critical):", err.message);
+    logger.error({ err: err.message }, "Summarization failed (non-critical)");
   }
 }
 
@@ -301,7 +304,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
     if (!runRes.ok) {
       const err = await runRes.text();
-      console.error(`[chat] Response creation failed (${runRes.status}):`, err);
+      logger.error({ status: runRes.status, err }, "Response creation failed");
       const detail = err.substring(0, 500);
       return res.status(503).json({ error: "Failed to run agent", upstream_status: runRes.status, detail });
     }
@@ -326,7 +329,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         try {
           result = await Promise.race([reader.read(), timeout]);
         } catch {
-          console.error("[chat] Stream inactivity timeout");
+          logger.error("Stream inactivity timeout");
           reader.cancel();
           break;
         }
@@ -359,7 +362,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         res.write(chunk);
       }
     } catch (streamErr) {
-      console.error("[chat] Stream error:", streamErr);
+      logger.error({ streamErr }, "Stream error");
     } finally {
       res.end();
     }
@@ -367,13 +370,13 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     // 5. Store assistant response in DB (async, non-blocking)
     if (assistantText) {
       addChatMessage(threadId, "assistant", assistantText).catch(err =>
-        console.error("[chat] Failed to store assistant message:", err),
+        logger.error({ err }, "Failed to store assistant message"),
       );
       // Trigger summarization in background
       maybeSummarize(threadId).catch(() => {});
     }
   } catch (err) {
-    console.error("[chat] Message/run error:", err);
+    logger.error({ err }, "Message/run error");
     if (!res.headersSent) {
       res.status(500).json({ error: "Failed to process message" });
     }

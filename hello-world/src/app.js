@@ -1,11 +1,16 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
+import { createLogger, requestIdMiddleware, httpLogger } from "@patelr3/tracing";
+
+const logger = createLogger("hello-world");
 
 const JWT_SECRET = process.env.JWT_SECRET || "change-me";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost";
 
 const app = express();
+app.use(requestIdMiddleware(logger));
+app.use(httpLogger(logger));
 app.use(cookieParser());
 
 // CORS

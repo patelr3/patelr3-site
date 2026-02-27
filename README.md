@@ -28,6 +28,7 @@ See [docs/architecture.md](docs/architecture.md) for the full system design.
 | hello-world           | Node.js 20 Express | Sample public micro-service                      |
 | hello-world-restricted| Node.js 20 Express | Sample restricted micro-service                  |
 | postgres              | PostgreSQL 16      | User accounts, roles, services, access requests  |
+| jaeger                | Jaeger 2           | Distributed trace collection & UI (localhost:16686) |
 
 > The [ActualBudget MCP server](https://github.com/patelr3/actual-server-setup/tree/main/mcp-server) lives in the `actual-server-setup` submodule and is included in the local Docker Compose stack.
 
@@ -84,6 +85,8 @@ patelr3-site/
 │       └── pages/          ← AboutMe, Dashboard, Admin, Account, ServicePage
 ├── hello-world/            ← Sample micro-service
 ├── hello-world-restricted/ ← Sample restricted micro-service
+├── packages/
+│   └── tracing/            ← Shared OpenTelemetry + pino tracing library
 ├── nginx/                  ← Reverse proxy (local dev only)
 ├── deployments/            ← Bicep templates & deploy scripts
 ├── tests/                  ← Integration test scripts

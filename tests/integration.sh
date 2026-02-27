@@ -131,6 +131,23 @@ if [ "$FE_SPA" = "200" ]; then pass "frontend direct: SPA serves HTML"; else fai
 if [ "$FE_AUTH" = "401" ]; then pass "frontend direct: /api/auth/me proxied"; else fail "frontend direct: /api/auth/me" "expected 401, got $FE_AUTH"; fi
 if [ "$FE_HELLO" = "401" ]; then pass "frontend direct: /api/hello/ proxied"; else fail "frontend direct: /api/hello/" "expected 401, got $FE_HELLO"; fi
 
+# ── Tracing / Request-ID propagation ─────────────────────────────
+echo ""
+echo "Tracing & Request ID:"
+
+# Verify X-Request-Id is returned by nginx for API calls
+REQ_ID=$(curl -s -D- -o /dev/null "$BASE_URL/api/auth/me" 2>/dev/null | grep -i "x-request-id" | head -1 | tr -d '\r' | awk '{print $2}')
+if [ -n "$REQ_ID" ]; then pass "X-Request-Id header present in response ($REQ_ID)"; else fail "X-Request-Id header" "not found in response"; fi
+
+# Verify custom X-Request-Id is echoed back
+CUSTOM_ID="test-trace-$(date +%s)"
+ECHO_ID=$(curl -s -D- -o /dev/null -H "X-Request-Id: $CUSTOM_ID" "$BASE_URL/api/auth/me" 2>/dev/null | grep -i "x-request-id" | head -1 | tr -d '\r' | awk '{print $2}')
+if [ "$ECHO_ID" = "$CUSTOM_ID" ]; then pass "Custom X-Request-Id echoed back"; else fail "Custom X-Request-Id" "expected '$CUSTOM_ID', got '$ECHO_ID'"; fi
+
+# Verify Jaeger UI is accessible
+JAEGER_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:16686/" 2>/dev/null || echo "skip")
+if [ "$JAEGER_STATUS" = "200" ]; then pass "Jaeger UI accessible on :16686"; else fail "Jaeger UI" "expected 200, got $JAEGER_STATUS"; fi
+
 # ── Summary ────────────────────────────────────────────────────
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="

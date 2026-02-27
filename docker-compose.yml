@@ -1,4 +1,14 @@
 services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: unless-stopped
+
   nginx:
     image: nginx:1.25-alpine
     ports:
@@ -10,6 +20,7 @@ services:
       - auth-api
       - hello-world
       - hello-world-restricted
+      - jaeger
     restart: unless-stopped
 
   frontend:
@@ -23,7 +34,9 @@ services:
     restart: unless-stopped
 
   auth-api:
-    build: ./auth-api
+    build:
+      context: .
+      dockerfile: auth-api/Dockerfile
     expose:
       - "8000"
     environment:
@@ -36,37 +49,62 @@ services:
       - FOUNDRY_AGENT_NAME=${FOUNDRY_AGENT_NAME:-sunnieai}
       - FOUNDRY_AGENT_ID=${FOUNDRY_AGENT_ID}
       - MCP_SERVER_URL=${MCP_SERVER_URL}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=auth-api
     depends_on:
       postgres:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     restart: unless-stopped
 
   hello-world:
-    build: ./hello-world
+    build:
+      context: .
+      dockerfile: hello-world/Dockerfile
     expose:
       - "5000"
     environment:
       - JWT_SECRET=${JWT_SECRET}
       - FRONTEND_URL=${FRONTEND_URL}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=hello-world
+    depends_on:
+      jaeger:
+        condition: service_started
     restart: unless-stopped
 
   hello-world-restricted:
-    build: ./hello-world-restricted
+    build:
+      context: .
+      dockerfile: hello-world-restricted/Dockerfile
     expose:
       - "5001"
     environment:
       - JWT_SECRET=${JWT_SECRET}
       - FRONTEND_URL=${FRONTEND_URL}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=hello-world-restricted
+    depends_on:
+      jaeger:
+        condition: service_started
     restart: unless-stopped
 
   mcp-server:
-    build: ./actual-server-setup/mcp-server
+    build:
+      context: .
+      dockerfile: actual-server-setup/mcp-server/Dockerfile
     expose:
       - "8090"
     environment:
       - JWT_SECRET=${JWT_SECRET}
       - FINANCE_API_URL=${FINANCE_API_URL}
       - FINANCE_API_KEY=${FINANCE_API_KEY}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=mcp-server
+    depends_on:
+      jaeger:
+        condition: service_started
     restart: unless-stopped
 
   postgres:
