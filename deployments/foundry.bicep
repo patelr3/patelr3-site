@@ -27,7 +27,7 @@ param modelDeployments array = [
     model: 'gpt-5.2-chat'
     format: 'OpenAI'
     version: '2026-02-10'
-    skuName: 'Standard'
+    skuName: 'GlobalStandard'
     capacity: 10
   }
 ]
