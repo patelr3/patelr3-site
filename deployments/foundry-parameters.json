@@ -20,14 +20,6 @@
           "version": "2025-04-14",
           "skuName": "Standard",
           "capacity": 10
-        },
-        {
-          "name": "gpt-5",
-          "model": "gpt-5",
-          "format": "OpenAI",
-          "version": "2025-08-07",
-          "skuName": "Standard",
-          "capacity": 10
         }
       ]
     }
