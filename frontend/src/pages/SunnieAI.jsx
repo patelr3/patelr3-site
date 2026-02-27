@@ -22,13 +22,24 @@ export default function SunnieAI({ user }) {
   const skipMessageFetchRef = useRef(false);
   const [inputFocused, setInputFocused] = useState(false);
 
-  // Scroll only the messages container, not the page
+  // Scroll messages container to bottom on new messages (history load, etc.)
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (container) {
       container.scrollTop = container.scrollHeight;
     }
-  }, [messages, agentStatus]);
+  }, [messages]);
+
+  // Pin scroll to bottom continuously while streaming (handles gaps between events)
+  useEffect(() => {
+    if (!streaming) return;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const id = setInterval(() => {
+      container.scrollTop = container.scrollHeight;
+    }, 150);
+    return () => clearInterval(id);
+  }, [streaming]);
 
   // Check if AI service is configured
   useEffect(() => {
@@ -245,16 +256,16 @@ export default function SunnieAI({ user }) {
                 });
               } else if (event.type) {
                 // Track agent activity for status indicator
-                if (event.type.includes("mcp_call") && !event.type.includes("completed")) {
+                if (event.type.includes("mcp_call") && event.type.includes("completed")) {
+                  setAgentStatus("Thinking…");
+                } else if (event.type.includes("mcp_call")) {
                   const label = event.item?.server_label || "";
                   setAgentStatus(label ? `Using ${label}…` : "Looking up data…");
                 } else if (event.type === "response.in_progress") {
-                  if (!assistantText) setAgentStatus("Thinking…");
-                } else if (event.type === "response.completed") {
-                  setAgentStatus(null);
-                } else if (event.type.includes("mcp_call") && event.type.includes("completed")) {
-                  setAgentStatus("Analyzing results…");
+                  setAgentStatus("Thinking…");
                 }
+                // Don't clear on response.completed — multi-step responses
+                // send this between steps, not just at the end
               }
             } catch {
               // skip unparseable events
