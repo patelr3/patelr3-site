@@ -216,7 +216,7 @@ async function maybeSummarize(threadId) {
               content: `Summarize this conversation in 2-3 concise sentences, preserving key facts and decisions:\n\n${summaryPrompt}`,
             },
           ],
-          model: "gpt-4.1",
+          model: "gpt-5.2",
           store: false,
           max_output_tokens: 200,
         }),
@@ -262,7 +262,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     const userJwt = req.cookies.access_token;
     const responseBody = {
       input,
-      model: "gpt-4.1",
+      model: "gpt-5.2",
       instructions: AGENT_INSTRUCTIONS,
       stream: true,
       store: false,

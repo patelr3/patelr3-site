@@ -12,7 +12,7 @@ The Foundry resources use the **CognitiveServices** resource provider. The AI Se
 |----------|------|------|----------|
 | AI Services | `Microsoft.CognitiveServices/accounts` | `patelr3-openai-1` | westus |
 | AI Project | `accounts/projects` | `patelr3-prod-1` | westus |
-| Model deployment | `accounts/deployments` | `gpt-4.1` (Standard, 2025-04-14) | westus |
+| Model deployment | `accounts/deployments` | `gpt-4.1` (Standard), `gpt-5.2` (Standard) | westus |
 | Agent | New Foundry Agent | `sunnieai` (versioned) | — |
 
 **Resource Group:** `patelr3-ai-rg`
