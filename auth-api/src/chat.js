@@ -95,7 +95,7 @@ router.get("/health", async (_req, res) => {
       method: "POST",
       body: JSON.stringify({
         input: "test",
-        model: "gpt-4.1",
+        model: "gpt-5-chat",
         store: false,
         max_output_tokens: 16,
       }),

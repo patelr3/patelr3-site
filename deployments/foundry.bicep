@@ -23,14 +23,6 @@ param projectName string = 'patelr3-prod-centralus'
 @description('Model deployments to create')
 param modelDeployments array = [
   {
-    name: 'gpt-4.1'
-    model: 'gpt-4.1'
-    format: 'OpenAI'
-    version: '2025-04-14'
-    skuName: 'Standard'
-    capacity: 10
-  }
-  {
     name: 'gpt-5-chat'
     model: 'gpt-5-chat'
     format: 'OpenAI'

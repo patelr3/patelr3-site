@@ -12,7 +12,7 @@ The Foundry resources use the **CognitiveServices** resource provider. The AI Se
 |----------|------|------|----------|
 | AI Services | `Microsoft.CognitiveServices/accounts` | `patelr3-openai-centralus` | centralus |
 | AI Project | `accounts/projects` | `patelr3-prod-centralus` | centralus |
-| Model deployment | `accounts/deployments` | `gpt-4.1` (Standard), `gpt-5-chat` (Standard) | centralus |
+| Model deployment | `accounts/deployments` | `gpt-5-chat` (Standard) | centralus |
 | Agent | New Foundry Agent | `sunnieai` (versioned) | — |
 
 **Resource Group:** `patelr3-ai-rg`
@@ -67,7 +67,7 @@ python scripts/setup-foundry-agent.py
 | Resource | Type | Purpose |
 |----------|------|---------|
 | AI Services | `Microsoft.CognitiveServices/accounts` | OpenAI model hosting |
-| Model deployment | `accounts/deployments` | gpt-4.1, gpt-5-chat Standard (configurable) |
+| Model deployment | `accounts/deployments` | gpt-5-chat Standard (configurable) |
 | AI Project | `accounts/projects` | SunnieAI workspace |
 | RBAC role assignment | `Microsoft.Authorization/roleAssignments` | Cognitive Services User for auth-api |
 
