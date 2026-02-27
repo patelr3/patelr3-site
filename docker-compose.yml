@@ -35,6 +35,7 @@ services:
       - FOUNDRY_PROJECT_ENDPOINT=${FOUNDRY_PROJECT_ENDPOINT}
       - FOUNDRY_AGENT_NAME=${FOUNDRY_AGENT_NAME:-sunnieai}
       - FOUNDRY_AGENT_ID=${FOUNDRY_AGENT_ID}
+      - MCP_SERVER_URL=${MCP_SERVER_URL}
     depends_on:
       postgres:
         condition: service_healthy

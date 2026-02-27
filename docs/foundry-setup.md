@@ -108,7 +108,7 @@ Current auth-api principal ID: `509dcfdb-8624-4e86-9816-e328a1e1ee85`
 
 ### Auth Flow
 
-Auth-api builds the input array with conversation context (summarized if long) and calls the Responses API with `agent_reference`. The MCP server authenticates via the user's JWT passed at agent setup time.
+Auth-api builds the input array with conversation context (summarized if long) and calls the Responses API with `agent_reference`. The user's JWT is passed per-request in the `tools` array as an MCP tool `headers` field, so Foundry forwards `Authorization: Bearer <jwt>` to the MCP server on each tool call. This ensures per-user, non-expired auth. Requires `MCP_SERVER_URL` env var on auth-api.
 
 ## Available Tools (21)
 
@@ -152,7 +152,7 @@ The agent will automatically:
 
 | Issue | Fix |
 |-------|-----|
-| 401 from MCP server | Check JWT is valid and not expired |
+| 401 from MCP server | Ensure `MCP_SERVER_URL` is set on auth-api and user has valid JWT cookie |
 | No budgets found | Ensure user has deployed an AB instance |
 | Tool timeout (50s) | Large transaction queries may timeout; use date filters |
 | Connection refused | Verify MCP server ACA is running and externally accessible |

@@ -120,6 +120,7 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'FOUNDRY_PROJECT_ENDPOINT', secretRef: 'foundry-project-endpoint' }
       { name: 'FOUNDRY_AGENT_NAME', secretRef: 'foundry-agent-name' }
       { name: 'FOUNDRY_AGENT_ID', secretRef: 'foundry-agent-id' }
+      { name: 'MCP_SERVER_URL', value: 'https://${projectName}-mcp-server.${cae.outputs.defaultDomain}' }
     ]
     secrets: [
       { name: 'google-client-id', keyVaultUrl: '${kvSecretsUrl}/google-client-id', identity: kvReaderIdentity.id }

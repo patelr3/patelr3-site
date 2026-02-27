@@ -292,6 +292,7 @@ CREATE TABLE oidc_auth_codes (
 | `OIDC_CLIENT_SECRET`      | Client secret for OIDC provider                    |
 | `FOUNDRY_PROJECT_ENDPOINT`| Azure AI Foundry project endpoint for SunnieAI     |
 | `FOUNDRY_AGENT_ID`        | Registered Foundry agent ID for SunnieAI           |
+| `MCP_SERVER_URL`          | External MCP server URL (for per-request tool auth) |
 
 **Production secrets** are stored in Azure Key Vault (`patelr3kvl3ytczhajsp7i`) and referenced by ACAs via `keyVaultUrl` + a shared user-assigned managed identity (`patelr3-kv-reader`). Updating a secret in AKV automatically propagates to all ACAs within 30 minutes.
 

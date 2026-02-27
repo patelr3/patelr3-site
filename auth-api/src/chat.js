@@ -14,6 +14,7 @@ const router = Router();
 // Azure AI Foundry config
 const FOUNDRY_ENDPOINT = config.foundryProjectEndpoint;
 const FOUNDRY_AGENT_NAME = config.foundryAgentName;
+const MCP_SERVER_URL = config.mcpServerUrl;
 
 // Foundry v1 endpoint: {project-endpoint}/openai/v1 (version embedded in path)
 function getOpenAIBaseUrl() {
@@ -260,6 +261,19 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         version: "1",
         type: "agent_reference",
       };
+    }
+
+    // Pass MCP tool with user's JWT so Foundry forwards auth to the MCP server
+    if (MCP_SERVER_URL && userJwt) {
+      responseBody.tools = [
+        {
+          type: "mcp",
+          server_label: "actual-budget-mcp",
+          server_url: `${MCP_SERVER_URL.replace(/\/+$/, "")}/mcp`,
+          headers: { Authorization: `Bearer ${userJwt}` },
+          require_approval: "never",
+        },
+      ];
     }
 
     const runRes = await foundryFetch(

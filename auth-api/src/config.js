@@ -14,6 +14,7 @@ const config = {
   foundryProjectEndpoint: process.env.FOUNDRY_PROJECT_ENDPOINT || "",
   foundryAgentName: process.env.FOUNDRY_AGENT_NAME || "sunnieai",
   foundryAgentId: process.env.FOUNDRY_AGENT_ID || "",  // deprecated, kept for fallback
+  mcpServerUrl: process.env.MCP_SERVER_URL || "",  // external MCP server URL for per-request tool auth
   jwtExpiresIn: "24h",
   port: 8000,
 };
