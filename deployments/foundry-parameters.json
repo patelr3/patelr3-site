@@ -3,21 +3,21 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "aiServicesName": {
-      "value": "patelr3-openai-centralus"
+      "value": "arayosun-prod-eastus2-resource"
     },
     "projectName": {
-      "value": "patelr3-prod-centralus"
+      "value": "arayosun-prod-eastus2"
     },
     "location": {
-      "value": "centralus"
+      "value": "eastus2"
     },
     "modelDeployments": {
       "value": [
         {
-          "name": "gpt-5-chat",
-          "model": "gpt-5-chat",
+          "name": "gpt-5.2-chat",
+          "model": "gpt-5.2-chat",
           "format": "OpenAI",
-          "version": "2025-10-03",
+          "version": "2026-02-10",
           "skuName": "Standard",
           "capacity": 10
         }

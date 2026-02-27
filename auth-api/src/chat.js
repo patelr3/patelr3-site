@@ -95,7 +95,7 @@ router.get("/health", async (_req, res) => {
       method: "POST",
       body: JSON.stringify({
         input: "test",
-        model: "gpt-5-chat",
+        model: "gpt-5.2-chat",
         store: false,
         max_output_tokens: 16,
       }),
@@ -226,7 +226,7 @@ async function maybeSummarize(threadId) {
               content: `Summarize this conversation in 2-3 concise sentences, preserving key facts and decisions:\n\n${summaryPrompt}`,
             },
           ],
-          model: "gpt-5-chat",
+          model: "gpt-5.2-chat",
           store: false,
           max_output_tokens: 200,
         }),
@@ -272,7 +272,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     const userJwt = req.cookies.access_token;
     const responseBody = {
       input,
-      model: "gpt-5-chat",
+      model: "gpt-5.2-chat",
       instructions: getAgentInstructions(),
       stream: true,
       store: false,

@@ -65,7 +65,7 @@ def main():
     mcp_url = args.mcp_url or os.environ.get("MCP_SERVER_URL")
 
     if not project_endpoint:
-        project_endpoint = "https://patelr3-openai-centralus.services.ai.azure.com/api/projects/patelr3-prod-centralus"
+        project_endpoint = "https://arayosun-prod-eastus2-resource.services.ai.azure.com/api/projects/arayosun-prod-eastus2"
         print(f"  Using default PROJECT_ENDPOINT: {project_endpoint}")
 
     if not mcp_url:
