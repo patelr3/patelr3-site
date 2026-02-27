@@ -572,13 +572,21 @@ nav a { text-decoration: none; }
 .site-footer a:hover { text-decoration: underline; }
 
 /* ── SunnieAI Chat ─────────────────────────────── */
+.page.sunnieai {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 8rem);
+  min-height: 350px;
+  overflow: hidden;
+}
 .sunnieai h1 { margin-bottom: 0.25rem; }
 .sunnieai-subtitle { color: #888; margin-bottom: 1rem; }
 .sunnieai-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
+  flex-shrink: 0;
 }
 .sunnieai-settings-btn {
   background: #f0f0f0;
@@ -594,7 +602,8 @@ nav a { text-decoration: none; }
   border: 1px solid #e0e0e0;
   border-radius: 8px;
   padding: 1rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
+  flex-shrink: 0;
 }
 .sunnieai-settings h3 { margin-bottom: 0.25rem; font-size: 0.95rem; }
 .sunnieai-settings-desc { color: #888; font-size: 0.85rem; margin-bottom: 0.75rem; }
@@ -616,11 +625,12 @@ nav a { text-decoration: none; }
 
 .sunnieai-layout {
   display: flex;
-  gap: 1rem;
+  gap: 0;
   border: 1px solid #e0e0e0;
   border-radius: 8px;
   overflow: hidden;
-  min-height: 300px;
+  flex: 1;
+  min-height: 0;
 }
 .sunnieai-sidebar {
   width: 200px;
@@ -678,6 +688,8 @@ nav a { text-decoration: none; }
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 .sunnieai-messages {
   flex: 1;
@@ -724,6 +736,8 @@ nav a { text-decoration: none; }
   gap: 0.5rem;
   padding: 0.75rem;
   border-top: 1px solid #e0e0e0;
+  flex-shrink: 0;
+  background: #fff;
 }
 .sunnieai-input input {
   flex: 1;
@@ -774,6 +788,9 @@ nav a { text-decoration: none; }
 }
 
 @media (max-width: 600px) {
+  .page.sunnieai {
+    height: calc(100dvh - 6rem);
+  }
   .sunnieai-layout {
     flex-direction: column;
   }
@@ -788,6 +805,7 @@ nav a { text-decoration: none; }
     border-bottom: 1px solid #e0e0e0;
     max-height: 52px;
     padding: 0.25rem;
+    flex-shrink: 0;
   }
   .sunnieai-new-btn { margin-bottom: 0; white-space: nowrap; }
   .sunnieai-thread { white-space: nowrap; }

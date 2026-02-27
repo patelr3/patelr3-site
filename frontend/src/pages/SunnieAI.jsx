@@ -18,26 +18,10 @@ export default function SunnieAI({ user }) {
   const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
   const skipMessageFetchRef = useRef(false);
-  const layoutRef = useRef(null);
-  const [layoutHeight, setLayoutHeight] = useState(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  // Dynamically measure available height for the chat layout
-  useEffect(() => {
-    const updateHeight = () => {
-      if (layoutRef.current) {
-        const top = layoutRef.current.getBoundingClientRect().top;
-        const available = window.innerHeight - top - 16;
-        setLayoutHeight(Math.max(300, available));
-      }
-    };
-    updateHeight();
-    window.addEventListener("resize", updateHeight);
-    return () => window.removeEventListener("resize", updateHeight);
-  }, [showSettings]);
 
   // Check if AI service is configured
   useEffect(() => {
@@ -334,7 +318,7 @@ export default function SunnieAI({ user }) {
         </div>
       )}
 
-      <div className="sunnieai-layout" ref={layoutRef} style={layoutHeight ? { height: `${layoutHeight}px` } : undefined}>
+      <div className="sunnieai-layout">
         {/* Thread sidebar */}
         <div className="sunnieai-sidebar">
           <button className="sunnieai-new-btn" onClick={createThread} disabled={loading}>
