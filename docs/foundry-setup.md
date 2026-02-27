@@ -15,7 +15,7 @@ The Foundry resources use the **CognitiveServices** resource provider. The AI Se
 | Model deployment | `accounts/deployments` | `gpt-4.1` (Standard), `gpt-5` (Standard) | eastus2 |
 | Agent | New Foundry Agent | `sunnieai` (versioned) | — |
 
-**Resource Group:** `patelr3-ai-eastus2-rg`
+**Resource Group:** `patelr3-ai-rg`
 **Project Endpoint:** `https://patelr3-openai-eastus2.services.ai.azure.com/api/projects/patelr3-prod-eastus2`
 
 ## API Architecture
@@ -101,7 +101,7 @@ The Foundry v1 Responses API (`/openai/v1/responses`) requires `cognitiveservice
 az role assignment create \
   --assignee <auth-api-managed-identity-principal-id> \
   --role "Cognitive Services User" \
-  --scope /subscriptions/34154ec0-9335-4f09-a67a-bda54a403a14/resourceGroups/patelr3-ai-eastus2-rg/providers/Microsoft.CognitiveServices/accounts/patelr3-openai-eastus2
+  --scope /subscriptions/34154ec0-9335-4f09-a67a-bda54a403a14/resourceGroups/patelr3-ai-rg/providers/Microsoft.CognitiveServices/accounts/patelr3-openai-eastus2
 ```
 
 Current auth-api principal ID: `509dcfdb-8624-4e86-9816-e328a1e1ee85`
