@@ -28,7 +28,7 @@ param modelDeployments array = [
     format: 'OpenAI'
     version: '2026-02-10'
     skuName: 'GlobalStandard'
-    capacity: 10
+    capacity: 50
   }
 ]
 
