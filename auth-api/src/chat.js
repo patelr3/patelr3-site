@@ -22,13 +22,23 @@ const MCP_SERVER_URL = config.mcpServerUrl;
 // Agent instructions: short role prompt + domain knowledge from markdown file
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const AGENT_KNOWLEDGE = readFileSync(join(__dirname, "agent-knowledge.md"), "utf-8");
-const AGENT_INSTRUCTIONS =
+const AGENT_INSTRUCTIONS_BASE =
   "You are SunnieAI, a personal finance assistant. " +
   "You have access to the user's Actual Budget data through MCP tools. " +
   "Use the available tools to help manage budgets, accounts, transactions, " +
   "categories, and more. Be friendly, concise, and helpful. " +
   "Confirm destructive actions before executing.\n\n" +
   AGENT_KNOWLEDGE;
+
+// Build instructions with current date injected so the model knows "today"
+function getAgentInstructions() {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("en-US", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+    timeZone: "America/New_York",
+  });
+  return `Current date: ${dateStr}\n\n${AGENT_INSTRUCTIONS_BASE}`;
+}
 
 // Foundry v1 endpoint: {project-endpoint}/openai/v1 (version embedded in path)
 function getOpenAIBaseUrl() {
@@ -216,7 +226,7 @@ async function maybeSummarize(threadId) {
               content: `Summarize this conversation in 2-3 concise sentences, preserving key facts and decisions:\n\n${summaryPrompt}`,
             },
           ],
-          model: "gpt-4.1",
+          model: "gpt-5",
           store: false,
           max_output_tokens: 200,
         }),
@@ -262,8 +272,8 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     const userJwt = req.cookies.access_token;
     const responseBody = {
       input,
-      model: "gpt-4.1",
-      instructions: AGENT_INSTRUCTIONS,
+      model: "gpt-5",
+      instructions: getAgentInstructions(),
       stream: true,
       store: false,
       max_output_tokens: 4096,

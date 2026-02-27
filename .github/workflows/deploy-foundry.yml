@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 env:
-  FOUNDRY_RESOURCE_GROUP: patelr3-ai-rg
-  FOUNDRY_LOCATION: westus
+  FOUNDRY_RESOURCE_GROUP: patelr3-ai-eastus2-rg
+  FOUNDRY_LOCATION: eastus2
   AZURE_CLIENT_ID: e8de1562-63b2-4236-9c74-d8e3bf83e61d
   AZURE_TENANT_ID: 50d3fb80-db3c-406e-bc9d-a22a6b825219
   AZURE_SUBSCRIPTION_ID: 34154ec0-9335-4f09-a67a-bda54a403a14

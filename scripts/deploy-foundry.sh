@@ -9,8 +9,8 @@
 #   - pip install "azure-ai-projects>=2.0.0b4" azure-identity
 set -euo pipefail
 
-RESOURCE_GROUP="${FOUNDRY_RESOURCE_GROUP:-patelr3-ai-rg}"
-LOCATION="${FOUNDRY_LOCATION:-westus}"
+RESOURCE_GROUP="${FOUNDRY_RESOURCE_GROUP:-patelr3-ai-eastus2-rg}"
+LOCATION="${FOUNDRY_LOCATION:-eastus2}"
 MODEL="${1:-gpt-4.1}"
 MCP_URL="${MCP_SERVER_URL:-}"
 
