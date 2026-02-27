@@ -17,10 +17,16 @@ export default function SunnieAI({ user }) {
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const skipMessageFetchRef = useRef(false);
+  const [inputFocused, setInputFocused] = useState(false);
 
+  // Scroll only the messages container, not the page
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [messages]);
 
   // Check if AI service is configured
@@ -348,7 +354,7 @@ export default function SunnieAI({ user }) {
 
         {/* Chat area */}
         <div className="sunnieai-chat">
-          <div className="sunnieai-messages">
+          <div className="sunnieai-messages" ref={messagesContainerRef}>
             {messages.length === 0 && (
               <div className="sunnieai-empty">
                 <p>👋 Hi {user?.name?.split(" ")[0] || "there"}! I'm SunnieAI.</p>
@@ -368,12 +374,19 @@ export default function SunnieAI({ user }) {
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="sunnieai-input">
-            <input
-              type="text"
+          <div className={`sunnieai-input ${inputFocused ? "focused" : ""}`}>
+            <textarea
+              rows={inputFocused ? 3 : 1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
               placeholder={activeThread ? "Type a message..." : "Start a new conversation..."}
               disabled={streaming}
             />
