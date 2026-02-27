@@ -10,13 +10,13 @@ The Foundry resources use the **CognitiveServices** resource provider. The AI Se
 
 | Resource | Type | Name | Location |
 |----------|------|------|----------|
-| AI Services | `Microsoft.CognitiveServices/accounts` | `patelr3-openai-eastus2` | eastus2 |
-| AI Project | `accounts/projects` | `patelr3-prod-eastus2` | eastus2 |
-| Model deployment | `accounts/deployments` | `gpt-4.1` (Standard), `gpt-5` (Standard) | eastus2 |
+| AI Services | `Microsoft.CognitiveServices/accounts` | `patelr3-openai-centralus` | centralus |
+| AI Project | `accounts/projects` | `patelr3-prod-centralus` | centralus |
+| Model deployment | `accounts/deployments` | `gpt-4.1` (Standard), `gpt-5-chat` (Standard) | centralus |
 | Agent | New Foundry Agent | `sunnieai` (versioned) | — |
 
 **Resource Group:** `patelr3-ai-rg`
-**Project Endpoint:** `https://patelr3-openai-eastus2.services.ai.azure.com/api/projects/patelr3-prod-eastus2`
+**Project Endpoint:** `https://patelr3-openai-centralus.services.ai.azure.com/api/projects/patelr3-prod-centralus`
 
 ## API Architecture
 
@@ -56,7 +56,7 @@ az login
 ./scripts/deploy-foundry.sh
 
 # Or manual:
-export PROJECT_ENDPOINT="https://patelr3-openai-eastus2.services.ai.azure.com/api/projects/patelr3-prod-eastus2"
+export PROJECT_ENDPOINT="https://patelr3-openai-centralus.services.ai.azure.com/api/projects/patelr3-prod-centralus"
 export MCP_SERVER_URL="https://patelr3-mcp-server.gentlebay-ad6f417d.westus2.azurecontainerapps.io"
 pip install "azure-ai-projects>=2.0.0b4" azure-identity
 python scripts/setup-foundry-agent.py
@@ -67,7 +67,7 @@ python scripts/setup-foundry-agent.py
 | Resource | Type | Purpose |
 |----------|------|---------|
 | AI Services | `Microsoft.CognitiveServices/accounts` | OpenAI model hosting |
-| Model deployment | `accounts/deployments` | gpt-4.1, gpt-5 Standard (configurable) |
+| Model deployment | `accounts/deployments` | gpt-4.1, gpt-5-chat Standard (configurable) |
 | AI Project | `accounts/projects` | SunnieAI workspace |
 | RBAC role assignment | `Microsoft.Authorization/roleAssignments` | Cognitive Services User for auth-api |
 
@@ -101,7 +101,7 @@ The Foundry v1 Responses API (`/openai/v1/responses`) requires `cognitiveservice
 az role assignment create \
   --assignee <auth-api-managed-identity-principal-id> \
   --role "Cognitive Services User" \
-  --scope /subscriptions/34154ec0-9335-4f09-a67a-bda54a403a14/resourceGroups/patelr3-ai-rg/providers/Microsoft.CognitiveServices/accounts/patelr3-openai-eastus2
+  --scope /subscriptions/34154ec0-9335-4f09-a67a-bda54a403a14/resourceGroups/patelr3-ai-rg/providers/Microsoft.CognitiveServices/accounts/patelr3-openai-centralus
 ```
 
 Current auth-api principal ID: `509dcfdb-8624-4e86-9816-e328a1e1ee85`
@@ -133,7 +133,7 @@ const response = await foundryFetch('/responses', {
     input: [
       { role: 'user', content: 'Show me my spending this month' }
     ],
-    model: 'gpt-5',
+    model: 'gpt-5-chat',
     stream: true,
     store: false,
     agent_reference: { name: 'sunnieai', version: '1', type: 'agent_reference' },

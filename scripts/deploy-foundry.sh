@@ -10,7 +10,7 @@
 set -euo pipefail
 
 RESOURCE_GROUP="${FOUNDRY_RESOURCE_GROUP:-patelr3-ai-rg}"
-LOCATION="${FOUNDRY_LOCATION:-eastus2}"
+LOCATION="${FOUNDRY_LOCATION:-centralus}"
 MODEL="${1:-gpt-4.1}"
 MCP_URL="${MCP_SERVER_URL:-}"
 

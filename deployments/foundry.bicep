@@ -12,13 +12,13 @@ targetScope = 'resourceGroup'
 
 // ── Parameters ─────────────────────────────────────────────────
 @description('Azure region')
-param location string = 'eastus2'
+param location string = 'centralus'
 
 @description('AI Services account name')
-param aiServicesName string = 'patelr3-openai-eastus2'
+param aiServicesName string = 'patelr3-openai-centralus'
 
 @description('AI Foundry project name')
-param projectName string = 'patelr3-prod-eastus2'
+param projectName string = 'patelr3-prod-centralus'
 
 @description('Model deployments to create')
 param modelDeployments array = [
@@ -27,6 +27,14 @@ param modelDeployments array = [
     model: 'gpt-4.1'
     format: 'OpenAI'
     version: '2025-04-14'
+    skuName: 'Standard'
+    capacity: 10
+  }
+  {
+    name: 'gpt-5-chat'
+    model: 'gpt-5-chat'
+    format: 'OpenAI'
+    version: '2025-10-03'
     skuName: 'Standard'
     capacity: 10
   }
