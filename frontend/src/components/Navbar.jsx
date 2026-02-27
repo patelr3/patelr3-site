@@ -1,9 +1,20 @@
 import { useState } from "react";
-import { NavLink, useNavigate, Link } from "react-router-dom";
+import { NavLink, useNavigate, useLocation, Link } from "react-router-dom";
 import logo from "/arayosun-logo.png";
+
+const PAGE_TITLES = {
+  "/dashboard": "Dashboard",
+  "/sunnieai": "☀️ SunnieAI",
+  "/about": "About Me",
+  "/admin": "Admin",
+  "/account": "Account",
+  "/signin": "Sign In",
+  "/services": "Services",
+};
 
 export default function Navbar({ user, onLogout }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const handleLogout = async () => {
@@ -14,11 +25,19 @@ export default function Navbar({ user, onLogout }) {
 
   const handleNavClick = () => setMenuOpen(false);
 
+  // Resolve page title from path (also handles /services/:slug)
+  const pageTitle = PAGE_TITLES[location.pathname]
+    || (location.pathname.startsWith("/services/") && "Services")
+    || "";
+
   return (
     <nav>
       <Link to="/" className="brand" onClick={handleNavClick}>
         <img src={logo} alt="Arayosun" className="brand-logo" />
       </Link>
+
+      {pageTitle && <span className="nav-page-title">{pageTitle}</span>}
+
       <button className="hamburger" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu">
         {menuOpen ? "✕" : "☰"}
       </button>
