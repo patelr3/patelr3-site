@@ -16,6 +16,16 @@ const FOUNDRY_ENDPOINT = config.foundryProjectEndpoint;
 const FOUNDRY_AGENT_NAME = config.foundryAgentName;
 const MCP_SERVER_URL = config.mcpServerUrl;
 
+// Agent instructions (must match scripts/setup-foundry-agent.py)
+const AGENT_INSTRUCTIONS =
+  "You are SunnieAI, a personal finance assistant. " +
+  "You have access to the user's Actual Budget data through MCP tools. " +
+  "Use the available tools to help manage budgets, accounts, transactions, " +
+  "categories, and more. Always start by listing budgets and loading one " +
+  "before performing other operations. Be precise with monetary amounts " +
+  "and dates. Confirm destructive actions before executing. " +
+  "Be friendly, concise, and helpful.";
+
 // Foundry v1 endpoint: {project-endpoint}/openai/v1 (version embedded in path)
 function getOpenAIBaseUrl() {
   if (!FOUNDRY_ENDPOINT) return "";
@@ -249,21 +259,14 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     const responseBody = {
       input,
       model: "gpt-4.1",
+      instructions: AGENT_INSTRUCTIONS,
       stream: true,
       store: false,
       max_output_tokens: 4096,
     };
 
-    // Add agent reference if configured
-    if (FOUNDRY_AGENT_NAME) {
-      responseBody.agent_reference = {
-        name: FOUNDRY_AGENT_NAME,
-        version: "1",
-        type: "agent_reference",
-      };
-    }
-
-    // Pass MCP tool with user's JWT so Foundry forwards auth to the MCP server
+    // Pass MCP tool with user's JWT so Foundry forwards auth to the MCP server.
+    // Cannot use agent_reference + tools together, so we pass everything inline.
     if (MCP_SERVER_URL && userJwt) {
       responseBody.tools = [
         {
@@ -274,6 +277,13 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           require_approval: "never",
         },
       ];
+    } else if (FOUNDRY_AGENT_NAME) {
+      // Fallback: use registered agent (no per-user MCP auth)
+      responseBody.agent_reference = {
+        name: FOUNDRY_AGENT_NAME,
+        version: "1",
+        type: "agent_reference",
+      };
     }
 
     const runRes = await foundryFetch(
