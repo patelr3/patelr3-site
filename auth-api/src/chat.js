@@ -28,6 +28,10 @@ const AGENT_INSTRUCTIONS_BASE =
   "Use the available tools to help manage budgets, accounts, transactions, " +
   "categories, and more. Be friendly, concise, and helpful. " +
   "Confirm destructive actions before executing.\n\n" +
+  "IMPORTANT: Always call MCP tools to fetch real data before answering financial questions. " +
+  "Never respond with placeholder text like 'let me look into that' — complete the full " +
+  "analysis in your response. When analyzing trends or comparisons, retrieve all necessary " +
+  "data, compute the results, and present them with specific numbers and formatting.\n\n" +
   AGENT_KNOWLEDGE;
 
 // Build instructions with current date injected so the model knows "today"
@@ -276,7 +280,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
       instructions: getAgentInstructions(),
       stream: true,
       store: false,
-      max_output_tokens: 4096,
+      max_output_tokens: 16384,
     };
 
     // Pass MCP tool with user's JWT so Foundry forwards auth to the MCP server.
@@ -325,6 +329,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     const reader = runRes.body.getReader();
     const decoder = new TextDecoder();
     let assistantText = "";
+    let sseBuffer = ""; // buffer partial SSE lines across chunks
 
     // Send SSE heartbeat every 15s to keep proxies from closing the connection
     const heartbeat = setInterval(() => {
@@ -353,8 +358,13 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
 
-        // Parse SSE to collect assistant text for DB storage
-        for (const line of chunk.split("\n")) {
+        // Parse SSE — buffer partial lines so events split across chunks
+        // are not dropped (fixes response.completed being silently lost).
+        sseBuffer += chunk;
+        const sseLines = sseBuffer.split("\n");
+        sseBuffer = sseLines.pop() || ""; // keep last (possibly incomplete) line
+
+        for (const line of sseLines) {
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
             if (data === "[DONE]") continue;
@@ -392,66 +402,104 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         res.write(chunk);
       }
 
-      // If the response ended with tool-call outputs but no final text,
-      // the model needs a continuation request to process the tool results.
-      if (responseId && lastResponseOutput.length > 0) {
+      // Auto-continue if: (a) response hit token limit (status=incomplete),
+      // or (b) response ended with only tool outputs and no text.
+      // Loop to support multi-turn tool-call chains.
+      let continuationRound = 0;
+      const MAX_CONTINUATIONS = 5;
+
+      while (responseId && continuationRound < MAX_CONTINUATIONS) {
         const hasToolOutput = lastResponseOutput.some(o => o.type === "mcp_call");
         const hasTextOutput = lastResponseOutput.some(o => o.type === "message" || o.type === "text");
-        if (hasToolOutput && !hasTextOutput) {
-          console.log("[chat] Response ended with only tool outputs — sending continuation");
-          try {
-            const contRes = await foundryFetch("/responses", {
-              method: "POST",
-              headers: { Accept: "text/event-stream" },
-              body: JSON.stringify({
-                input: [{ type: "response", id: responseId }],
-                model: "gpt-5.2-chat",
-                instructions: getAgentInstructions(),
-                stream: true,
-                store: false,
-                max_output_tokens: 4096,
-                tools: responseBody.tools,
-              }),
-            });
-            if (contRes.ok) {
-              const contReader = contRes.body.getReader();
-              const contDecoder = new TextDecoder();
-              while (true) {
-                const contTimeout = new Promise((_, reject) =>
-                  setTimeout(() => reject(new Error("cont_timeout")), STREAM_TIMEOUT_MS),
-                );
-                let contResult;
-                try {
-                  contResult = await Promise.race([contReader.read(), contTimeout]);
-                } catch {
-                  console.error("[chat] Continuation stream timeout");
-                  contReader.cancel();
-                  break;
-                }
-                const { done: contDone, value: contValue } = contResult;
-                if (contDone) break;
-                const contChunk = contDecoder.decode(contValue, { stream: true });
-                for (const line of contChunk.split("\n")) {
-                  if (line.startsWith("data: ")) {
-                    const data = line.slice(6);
-                    if (data === "[DONE]") continue;
-                    try {
-                      const event = JSON.parse(data);
-                      if (event.type === "response.output_text.delta" && event.delta) {
-                        assistantText += event.delta;
-                      }
-                    } catch { /* skip */ }
-                  }
-                }
-                res.write(contChunk);
-              }
-            } else {
-              console.error(`[chat] Continuation request failed: ${contRes.status}`);
-            }
-          } catch (contErr) {
-            console.error("[chat] Continuation error:", contErr);
+        const needsContinuation =
+          lastResponseStatus === "incomplete" ||
+          (hasToolOutput && !hasTextOutput);
+
+        if (!needsContinuation) break;
+        continuationRound++;
+        console.log(`[chat] Continuation #${continuationRound}: status=${lastResponseStatus} outputs=${lastResponseOutput.length}`);
+
+        // Reset tracking for this round
+        const prevResponseId = responseId;
+        responseId = null;
+        lastResponseStatus = null;
+        lastResponseOutput = [];
+
+        try {
+          const contRes = await foundryFetch("/responses", {
+            method: "POST",
+            headers: { Accept: "text/event-stream" },
+            body: JSON.stringify({
+              input: [{ type: "response", id: prevResponseId }],
+              model: "gpt-5.2-chat",
+              instructions: getAgentInstructions(),
+              stream: true,
+              store: false,
+              max_output_tokens: 16384,
+              tools: responseBody.tools,
+            }),
+          });
+          if (!contRes.ok) {
+            console.error(`[chat] Continuation #${continuationRound} failed: ${contRes.status}`);
+            break;
           }
+          const contReader = contRes.body.getReader();
+          const contDecoder = new TextDecoder();
+          let contSseBuffer = "";
+          while (true) {
+            let contResult;
+            try {
+              contResult = await Promise.race([
+                contReader.read(),
+                new Promise((_, reject) =>
+                  setTimeout(() => reject(new Error("cont_timeout")), STREAM_TIMEOUT_MS),
+                ),
+              ]);
+            } catch {
+              console.error(`[chat] Continuation #${continuationRound} stream timeout`);
+              contReader.cancel();
+              break;
+            }
+            const { done: contDone, value: contValue } = contResult;
+            if (contDone) break;
+            const contChunk = contDecoder.decode(contValue, { stream: true });
+            contSseBuffer += contChunk;
+            const contLines = contSseBuffer.split("\n");
+            contSseBuffer = contLines.pop() || "";
+            for (const line of contLines) {
+              if (line.startsWith("data: ")) {
+                const data = line.slice(6);
+                if (data === "[DONE]") continue;
+                try {
+                  const event = JSON.parse(data);
+                  if (event.type === "response.output_text.delta" && event.delta) {
+                    assistantText += event.delta;
+                  }
+                  if (event.type === "response.completed" && event.response) {
+                    responseId = event.response.id;
+                    lastResponseStatus = event.response.status;
+                    lastResponseOutput = event.response.output || [];
+                    console.log(`[chat] Continuation #${continuationRound} completed: id=${responseId} status=${lastResponseStatus} outputs=${lastResponseOutput.length}`);
+                  }
+                  if (event.type && !event.type.includes("delta")) {
+                    console.log(`[chat] SSE event (cont#${continuationRound}): ${event.type}`);
+                  }
+                } catch { /* skip */ }
+              }
+            }
+            res.write(contChunk);
+          }
+        } catch (contErr) {
+          console.error(`[chat] Continuation #${continuationRound} error:`, contErr);
+          break;
         }
+      }
+
+      // Diagnostic: log if stream ended without response.completed
+      if (!responseId && !assistantText) {
+        console.warn("[chat] Stream ended without response.completed and no text collected");
+      } else if (!responseId && assistantText) {
+        console.warn("[chat] Stream ended without response.completed (text was collected, possible chunk-split)");
       }
     } catch (streamErr) {
       console.error("[chat] Stream error:", streamErr);
