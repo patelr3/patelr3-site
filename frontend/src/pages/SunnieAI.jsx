@@ -15,6 +15,7 @@ export default function SunnieAI({ user }) {
   const [showSettings, setShowSettings] = useState(false);
   const [configured, setConfigured] = useState(null);
   const [listening, setListening] = useState(false);
+  const [agentStatus, setAgentStatus] = useState(null);
   const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
@@ -27,7 +28,7 @@ export default function SunnieAI({ user }) {
     if (container) {
       container.scrollTop = container.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, agentStatus]);
 
   // Check if AI service is configured
   useEffect(() => {
@@ -158,6 +159,7 @@ export default function SunnieAI({ user }) {
 
     // Add placeholder for assistant response
     setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+    setAgentStatus("Thinking…");
 
     try {
       const res = await fetch(`/api/auth/chat/threads/${threadId}/messages`, {
@@ -232,6 +234,7 @@ export default function SunnieAI({ user }) {
                 "";
               if (delta) {
                 assistantText += delta;
+                setAgentStatus(null);
                 setMessages((prev) => {
                   const updated = [...prev];
                   updated[updated.length - 1] = {
@@ -240,6 +243,18 @@ export default function SunnieAI({ user }) {
                   };
                   return updated;
                 });
+              } else if (event.type) {
+                // Track agent activity for status indicator
+                if (event.type.includes("mcp_call") && !event.type.includes("completed")) {
+                  const label = event.item?.server_label || "";
+                  setAgentStatus(label ? `Using ${label}…` : "Looking up data…");
+                } else if (event.type === "response.in_progress") {
+                  if (!assistantText) setAgentStatus("Thinking…");
+                } else if (event.type === "response.completed") {
+                  setAgentStatus(null);
+                } else if (event.type.includes("mcp_call") && event.type.includes("completed")) {
+                  setAgentStatus("Analyzing results…");
+                }
               }
             } catch {
               // skip unparseable events
@@ -274,6 +289,7 @@ export default function SunnieAI({ user }) {
       });
     }
     setStreaming(false);
+    setAgentStatus(null);
   };
 
   const toggleServer = (id) => {
@@ -367,10 +383,16 @@ export default function SunnieAI({ user }) {
                   {msg.role === "user" ? "👤" : "☀️"}
                 </div>
                 <div className="sunnieai-msg-content">
-                  {msg.content || (streaming && i === messages.length - 1 ? "Thinking..." : "")}
+                  {msg.content || (streaming && i === messages.length - 1 && agentStatus ? agentStatus : "")}
                 </div>
               </div>
             ))}
+            {streaming && agentStatus && messages.length > 0 && messages[messages.length - 1]?.content && (
+              <div className="sunnieai-status">
+                <span className="sunnieai-status-dots"><span /><span /><span /></span>
+                {agentStatus}
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
 
