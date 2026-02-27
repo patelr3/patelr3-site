@@ -333,6 +333,10 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
     try {
       const STREAM_TIMEOUT_MS = 300_000;
+      let responseId = null;
+      let lastResponseStatus = null;
+      let lastResponseOutput = [];
+
       while (true) {
         const timeout = new Promise((_, reject) =>
           setTimeout(() => reject(new Error("stream_timeout")), STREAM_TIMEOUT_MS),
@@ -365,6 +369,20 @@ router.post("/threads/:threadId/messages", async (req, res) => {
               if (classicDelta) {
                 assistantText += classicDelta;
               }
+              // Track response completion status for multi-turn continuation
+              if (event.type === "response.completed" && event.response) {
+                responseId = event.response.id;
+                lastResponseStatus = event.response.status;
+                lastResponseOutput = event.response.output || [];
+                console.log(`[chat] Response completed: id=${responseId} status=${lastResponseStatus} outputs=${lastResponseOutput.length}`);
+                for (const item of lastResponseOutput) {
+                  console.log(`[chat]   output item: type=${item.type} ${item.type === "mcp_call" ? `name=${item.name} server=${item.server_label}` : ""}`);
+                }
+              }
+              // Log important events for debugging
+              if (event.type && !event.type.includes("delta")) {
+                console.log(`[chat] SSE event: ${event.type}`);
+              }
             } catch {
               // skip unparseable SSE lines
             }
@@ -372,6 +390,68 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         }
 
         res.write(chunk);
+      }
+
+      // If the response ended with tool-call outputs but no final text,
+      // the model needs a continuation request to process the tool results.
+      if (responseId && lastResponseOutput.length > 0) {
+        const hasToolOutput = lastResponseOutput.some(o => o.type === "mcp_call");
+        const hasTextOutput = lastResponseOutput.some(o => o.type === "message" || o.type === "text");
+        if (hasToolOutput && !hasTextOutput) {
+          console.log("[chat] Response ended with only tool outputs — sending continuation");
+          try {
+            const contRes = await foundryFetch("/responses", {
+              method: "POST",
+              headers: { Accept: "text/event-stream" },
+              body: JSON.stringify({
+                input: [{ type: "response", id: responseId }],
+                model: "gpt-5.2-chat",
+                instructions: getAgentInstructions(),
+                stream: true,
+                store: false,
+                max_output_tokens: 4096,
+                tools: responseBody.tools,
+              }),
+            });
+            if (contRes.ok) {
+              const contReader = contRes.body.getReader();
+              const contDecoder = new TextDecoder();
+              while (true) {
+                const contTimeout = new Promise((_, reject) =>
+                  setTimeout(() => reject(new Error("cont_timeout")), STREAM_TIMEOUT_MS),
+                );
+                let contResult;
+                try {
+                  contResult = await Promise.race([contReader.read(), contTimeout]);
+                } catch {
+                  console.error("[chat] Continuation stream timeout");
+                  contReader.cancel();
+                  break;
+                }
+                const { done: contDone, value: contValue } = contResult;
+                if (contDone) break;
+                const contChunk = contDecoder.decode(contValue, { stream: true });
+                for (const line of contChunk.split("\n")) {
+                  if (line.startsWith("data: ")) {
+                    const data = line.slice(6);
+                    if (data === "[DONE]") continue;
+                    try {
+                      const event = JSON.parse(data);
+                      if (event.type === "response.output_text.delta" && event.delta) {
+                        assistantText += event.delta;
+                      }
+                    } catch { /* skip */ }
+                  }
+                }
+                res.write(contChunk);
+              }
+            } else {
+              console.error(`[chat] Continuation request failed: ${contRes.status}`);
+            }
+          } catch (contErr) {
+            console.error("[chat] Continuation error:", contErr);
+          }
+        }
       }
     } catch (streamErr) {
       console.error("[chat] Stream error:", streamErr);
