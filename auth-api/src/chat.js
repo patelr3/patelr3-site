@@ -326,8 +326,13 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     const decoder = new TextDecoder();
     let assistantText = "";
 
+    // Send SSE heartbeat every 15s to keep proxies from closing the connection
+    const heartbeat = setInterval(() => {
+      try { res.write(":heartbeat\n\n"); } catch { /* client gone */ }
+    }, 15_000);
+
     try {
-      const STREAM_TIMEOUT_MS = 120_000;
+      const STREAM_TIMEOUT_MS = 300_000;
       while (true) {
         const timeout = new Promise((_, reject) =>
           setTimeout(() => reject(new Error("stream_timeout")), STREAM_TIMEOUT_MS),
@@ -371,6 +376,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     } catch (streamErr) {
       console.error("[chat] Stream error:", streamErr);
     } finally {
+      clearInterval(heartbeat);
       res.end();
     }
 

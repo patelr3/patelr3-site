@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const MCP_SERVERS = [
   { id: "actualbudget", name: "Actual Budget", description: "Personal finance data" },
@@ -202,7 +204,7 @@ export default function SunnieAI({ user }) {
       const decoder = new TextDecoder();
       let buffer = "";
       let assistantText = "";
-      const STREAM_TIMEOUT_MS = 90_000;
+      const STREAM_TIMEOUT_MS = 300_000;
 
       while (true) {
         const timeout = new Promise((_, reject) =>
@@ -394,7 +396,13 @@ export default function SunnieAI({ user }) {
                   {msg.role === "user" ? "👤" : "☀️"}
                 </div>
                 <div className="sunnieai-msg-content">
-                  {msg.content || (streaming && i === messages.length - 1 && agentStatus ? agentStatus : "")}
+                  {msg.role === "assistant" ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {msg.content || (streaming && i === messages.length - 1 && agentStatus ? agentStatus : "")}
+                    </ReactMarkdown>
+                  ) : (
+                    msg.content || ""
+                  )}
                 </div>
               </div>
             ))}

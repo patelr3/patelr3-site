@@ -741,13 +741,86 @@ nav a { text-decoration: none; }
   font-size: 0.9rem;
   line-height: 1.5;
   max-width: 85%;
-  white-space: pre-wrap;
   word-break: break-word;
 }
 .sunnieai-msg-user .sunnieai-msg-content {
   background: #4285f4;
   color: #fff;
   margin-left: auto;
+  white-space: pre-wrap;
+}
+
+/* Markdown rendering in assistant messages */
+.sunnieai-msg-assistant .sunnieai-msg-content p { margin: 0.3em 0; }
+.sunnieai-msg-assistant .sunnieai-msg-content p:first-child { margin-top: 0; }
+.sunnieai-msg-assistant .sunnieai-msg-content p:last-child { margin-bottom: 0; }
+.sunnieai-msg-assistant .sunnieai-msg-content h1,
+.sunnieai-msg-assistant .sunnieai-msg-content h2,
+.sunnieai-msg-assistant .sunnieai-msg-content h3 {
+  margin: 0.6em 0 0.3em;
+  font-size: 1em;
+  font-weight: 600;
+}
+.sunnieai-msg-assistant .sunnieai-msg-content h1 { font-size: 1.15em; }
+.sunnieai-msg-assistant .sunnieai-msg-content h2 { font-size: 1.05em; }
+.sunnieai-msg-assistant .sunnieai-msg-content ul,
+.sunnieai-msg-assistant .sunnieai-msg-content ol {
+  margin: 0.3em 0;
+  padding-left: 1.4em;
+}
+.sunnieai-msg-assistant .sunnieai-msg-content li { margin: 0.15em 0; }
+.sunnieai-msg-assistant .sunnieai-msg-content code {
+  background: #e0e0e0;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+.sunnieai-msg-assistant .sunnieai-msg-content pre {
+  background: #2d2d2d;
+  color: #f8f8f2;
+  padding: 0.6em 0.8em;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.4em 0;
+  font-size: 0.83em;
+}
+.sunnieai-msg-assistant .sunnieai-msg-content pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+.sunnieai-msg-assistant .sunnieai-msg-content table {
+  border-collapse: collapse;
+  margin: 0.4em 0;
+  font-size: 0.85em;
+  width: 100%;
+}
+.sunnieai-msg-assistant .sunnieai-msg-content th,
+.sunnieai-msg-assistant .sunnieai-msg-content td {
+  border: 1px solid #ccc;
+  padding: 0.3em 0.5em;
+  text-align: left;
+}
+.sunnieai-msg-assistant .sunnieai-msg-content th {
+  background: #e8e8e8;
+  font-weight: 600;
+}
+.sunnieai-msg-assistant .sunnieai-msg-content blockquote {
+  border-left: 3px solid #ccc;
+  margin: 0.4em 0;
+  padding: 0.2em 0.6em;
+  color: #555;
+}
+.sunnieai-msg-assistant .sunnieai-msg-content a {
+  color: #4285f4;
+  text-decoration: underline;
+}
+.sunnieai-msg-assistant .sunnieai-msg-content hr {
+  border: none;
+  border-top: 1px solid #ddd;
+  margin: 0.5em 0;
 }
 .sunnieai-msg-user { flex-direction: row-reverse; }
 
