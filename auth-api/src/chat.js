@@ -1,9 +1,9 @@
 // SunnieAI chat proxy — forwards chat requests to Azure AI Foundry Agent Service.
-// Uses the Responses API with agent_reference (agent has model, instructions,
-// and MCP tools with OAuth identity passthrough configured server-side).
+// Uses the @azure/ai-projects SDK with the Conversations API for per-user OAuth
+// isolation (fixes cross-user token leakage). Agent has model, instructions, and
+// MCP tools with OAuth identity passthrough configured server-side.
 // Manages conversation history locally with rolling summarization.
 import { Router } from "express";
-import { randomUUID } from "node:crypto";
 import { trace, context, SpanStatusCode } from "./tracing.js";
 import logger from "./logger.js";
 import config from "./config.js";
@@ -12,8 +12,11 @@ import {
   addChatMessage, getChatMessages, getChatMessageCount,
   updateThreadSummary, getThreadSummary,
   getWrappedVaultKey, getThreadById,
+  getThreadFoundryConversationId, updateThreadFoundryConversationId,
 } from "./db.js";
 import { deriveServerKey, unwrapKey } from "./crypto.js";
+import { AIProjectClient } from "@azure/ai-projects";
+import { DefaultAzureCredential } from "@azure/identity";
 
 const router = Router();
 const tracer = trace.getTracer("chat");
@@ -22,12 +25,17 @@ const tracer = trace.getTracer("chat");
 const FOUNDRY_ENDPOINT = config.foundryProjectEndpoint;
 const FOUNDRY_AGENT_NAME = config.foundryAgentName;
 
-// Foundry v1 endpoint: {project-endpoint}/openai/v1 (version embedded in path)
-function getOpenAIBaseUrl() {
-  if (!FOUNDRY_ENDPOINT) return "";
-  return `${FOUNDRY_ENDPOINT.replace(/\/+$/, "")}/openai/v1`;
+// SDK client — lazily initialized (null when endpoint not configured)
+let _projectClient = null;
+let _openaiClient = null;
+function getOpenAIClient() {
+  if (_openaiClient) return _openaiClient;
+  if (!FOUNDRY_ENDPOINT) return null;
+  const credential = new DefaultAzureCredential();
+  _projectClient = new AIProjectClient(FOUNDRY_ENDPOINT, credential);
+  _openaiClient = _projectClient.getOpenAIClient();
+  return _openaiClient;
 }
-const OPENAI_BASE = getOpenAIBaseUrl();
 
 // Summarization thresholds
 const SUMMARY_THRESHOLD = 10;  // summarize when > 10 messages
@@ -46,44 +54,6 @@ async function getUserVaultKey(userId) {
   }
 }
 
-async function getAzureToken() {
-  return tracer.startActiveSpan("chat.getAzureToken", async (span) => {
-    try {
-      const { DefaultAzureCredential } = await import("@azure/identity");
-      const credential = new DefaultAzureCredential();
-      const token = await credential.getToken("https://ai.azure.com/.default");
-      span.end();
-      return token.token;
-    } catch (err) {
-      logger.error("Failed to get Azure token", { error: err.message });
-      span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
-      span.end();
-      throw err;
-    }
-  });
-}
-
-async function foundryFetch(path, opts = {}) {
-  return tracer.startActiveSpan("chat.foundryFetch", { attributes: { "http.method": opts.method || "GET", "http.url": path } }, async (span) => {
-    const token = await getAzureToken();
-    const url = `${OPENAI_BASE}${path}`;
-    logger.info("Foundry request", { method: opts.method || "GET", url });
-    const res = await fetch(url, {
-      ...opts,
-      signal: opts.signal || AbortSignal.timeout(60_000),
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        ...opts.headers,
-      },
-    });
-    logger.info("Foundry response", { status: res.status, statusText: res.statusText, url });
-    span.setAttribute("http.status_code", res.status);
-    span.end();
-    return res;
-  });
-}
-
 // ── Health check ───────────────────────────────────────────────
 router.get("/health", async (_req, res) => {
   const health = {
@@ -91,26 +61,21 @@ router.get("/health", async (_req, res) => {
     endpoint: FOUNDRY_ENDPOINT ? "set" : "missing",
     agentName: FOUNDRY_AGENT_NAME || "missing",
     api: "responses",
-    openaiBase: OPENAI_BASE || "not-set",
   };
 
   // Quick connectivity test (non-blocking)
   try {
-    const testRes = await foundryFetch("/responses", {
-      method: "POST",
-      body: JSON.stringify({
+    const client = getOpenAIClient();
+    if (!client) {
+      health.foundryError = "SDK client not configured";
+    } else {
+      const testRes = await client.responses.create({
         input: "test",
         model: "gpt-4.1",
         store: false,
         max_output_tokens: 16,
-      }),
-    });
-    health.foundryStatus = testRes.status;
-    if (!testRes.ok) {
-      const err = await testRes.text();
-      health.foundryError = err.substring(0, 300);
-    } else {
-      health.foundryStatus = "ok";
+      });
+      health.foundryStatus = testRes?.id ? "ok" : "unknown";
     }
   } catch (err) {
     health.foundryError = err.message;
@@ -138,6 +103,22 @@ router.post("/threads", async (req, res) => {
       Number(req.jwtUser.sub),
       title || "New conversation",
     );
+
+    // Create a Foundry conversation for per-user OAuth isolation
+    try {
+      const client = getOpenAIClient();
+      if (client) {
+        const conversation = await client.conversations.create();
+        if (conversation?.id) {
+          await updateThreadFoundryConversationId(thread.id, conversation.id);
+          thread.foundry_conversation_id = conversation.id;
+        }
+      }
+    } catch (err) {
+      // Non-fatal: thread still works without conversation scoping
+      logger.warn("Failed to create Foundry conversation", { error: err.message });
+    }
+
     res.status(201).json(thread);
   } catch (err) {
     logger.error("Thread creation error", { error: err.message });
@@ -228,33 +209,27 @@ async function maybeSummarize(threadId, vaultKey = null) {
       .map(m => `${m.role}: ${m.content}`)
       .join("\n");
 
-    const summaryRes = await foundryFetch(
-      "/responses",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          input: [
-            {
-              role: "user",
-              content: `Summarize this conversation in 2-3 concise sentences, preserving key facts and decisions:\n\n${summaryPrompt}`,
-            },
-          ],
-          model: "gpt-4.1",
-          store: false,
-          max_output_tokens: 200,
-        }),
-      },
-    );
+    const client = getOpenAIClient();
+    if (!client) return;
 
-    if (summaryRes.ok) {
-      const data = await summaryRes.json();
-      const summaryText =
-        data?.output?.[0]?.content?.[0]?.text ||
-        data?.output_text ||
-        "";
-      if (summaryText) {
-        await updateThreadSummary(threadId, summaryText, vaultKey);
-      }
+    const summaryRes = await client.responses.create({
+      input: [
+        {
+          role: "user",
+          content: `Summarize this conversation in 2-3 concise sentences, preserving key facts and decisions:\n\n${summaryPrompt}`,
+        },
+      ],
+      model: "gpt-4.1",
+      store: false,
+      max_output_tokens: 200,
+    });
+
+    const summaryText =
+      summaryRes?.output?.[0]?.content?.[0]?.text ||
+      summaryRes?.output_text ||
+      "";
+    if (summaryText) {
+      await updateThreadSummary(threadId, summaryText, vaultKey);
     }
   } catch (err) {
     logger.error("Summarization failed (non-critical)", { error: err.message });
@@ -262,11 +237,183 @@ async function maybeSummarize(threadId, vaultKey = null) {
 }
 
 // ── Send message and run agent (streaming) ─────────────────────
+
+/** Write an error message to the SSE stream with correlation ID. */
+function writeStreamError(res, correlationId, errMsg) {
+  try {
+    res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
+  } catch { /* client gone */ }
+}
+
+/**
+ * Stream a single Foundry response via the SDK, forwarding events as SSE to the client.
+ * Returns { responseId, status, output, error, assistantChunk, oauthConsentUrl }.
+ */
+async function streamSDKResponse(client, params, sdkOpts, res, label = "main") {
+  return tracer.startActiveSpan("chat.streamResponse", { attributes: { label } }, async (streamSpan) => {
+    let responseId = null;
+    let status = null;
+    let output = [];
+    let lastError = null;
+    let textChunk = "";
+    let oauthConsentSent = false;
+
+    const STREAM_EVENT_TIMEOUT_MS = 300_000;
+    let eventTimer = null;
+    const resetTimer = () => {
+      if (eventTimer) clearTimeout(eventTimer);
+      eventTimer = setTimeout(() => {
+        logger.error("Stream event timeout", { label });
+        streamSpan.setStatus({ code: SpanStatusCode.ERROR, message: "stream_timeout" });
+        // Abort will cause the for-await to throw
+        if (sdkOpts.signal && !sdkOpts.signal.aborted) {
+          sdkOpts._abortController?.abort();
+        }
+      }, STREAM_EVENT_TIMEOUT_MS);
+    };
+
+    try {
+      const stream = await client.responses.create(params, sdkOpts);
+
+      for await (const event of stream) {
+        resetTimer();
+
+        // Re-serialize for frontend SSE proxy (preserves the existing contract)
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+
+        // Collect text deltas
+        if (event.type === "response.output_text.delta" && event.delta) {
+          textChunk += event.delta;
+        }
+
+        // Track completion
+        if (event.type === "response.completed" && event.response) {
+          responseId = event.response.id;
+          status = event.response.status;
+          output = event.response.output || [];
+          logger.info("Response completed", {
+            label, responseId, status, outputCount: output.length,
+          });
+          for (const item of output) {
+            logger.info("Response output", {
+              label, type: item.type,
+              ...(item.type === "mcp_call" ? { mcpCallName: item.name } : {}),
+            });
+          }
+        }
+
+        // Track incomplete responses (max_output_tokens reached)
+        if (event.type === "response.incomplete" && event.response) {
+          responseId = event.response.id;
+          status = "incomplete";
+          output = event.response.output || [];
+        }
+
+        // Track failures
+        if (event.type === "response.failed" && event.response) {
+          responseId = event.response.id;
+          status = "failed";
+          output = event.response.output || [];
+          const errDetail = event.response.error || event.response.last_error || lastError;
+          logger.error("Response FAILED", {
+            label, responseId,
+            error: JSON.stringify(errDetail).substring(0, 500),
+            outputCount: output.length,
+          });
+          streamSpan.setStatus({ code: SpanStatusCode.ERROR, message: "response.failed" });
+        }
+
+        // Detect OAuth consent request from Foundry (send at most once)
+        if (event.type === "response.oauth_consent_requested" && !oauthConsentSent) {
+          const consentUrl = event.consent_link || event.authorization_url || event.url
+            || event.item?.consent_link || event.item?.authorization_url || event.item?.url || "";
+          if (consentUrl) {
+            logger.info("OAuth consent requested", { label, url: consentUrl });
+            res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: consentUrl })}\n\n`);
+            oauthConsentSent = true;
+          } else {
+            logger.warn("OAuth consent event with no URL", { label, eventKeys: Object.keys(event).join(",") });
+          }
+        }
+
+        // Also detect oauth_consent_request in output_item.added events
+        if (event.type === "response.output_item.added" && event.item?.type === "oauth_consent_request" && !oauthConsentSent) {
+          const consentUrl = event.item.consent_link || event.item.authorization_url || event.item.url || "";
+          if (consentUrl) {
+            logger.info("OAuth consent from output item", { label, url: consentUrl });
+            res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: consentUrl })}\n\n`);
+            oauthConsentSent = true;
+          }
+        }
+
+        // Log MCP call details
+        if (event.type === "response.mcp_call.in_progress" && event.item) {
+          logger.info("MCP call starting", {
+            label,
+            mcpCallName: event.item.name || "?",
+            serverLabel: event.item.server_label || "?",
+          });
+        }
+        if (event.type === "response.mcp_call.completed" && event.item) {
+          const mcpOut = event.item.output || "";
+          const truncated = typeof mcpOut === "string" ? mcpOut.substring(0, 500) : JSON.stringify(mcpOut).substring(0, 500);
+          logger.info("MCP call completed", { label, mcpCallName: event.item.name || "?", mcpOutput: truncated });
+        }
+        if (event.type === "response.output_item.done" && event.item?.type === "mcp_call") {
+          const mcpOut = event.item.output || "";
+          const truncated = typeof mcpOut === "string" ? mcpOut.substring(0, 500) : JSON.stringify(mcpOut).substring(0, 500);
+          logger.info("MCP call result", { label, mcpCallName: event.item.name || "?", mcpOutput: truncated });
+        }
+
+        // Log non-delta events
+        if (event.type && !event.type.includes("delta")) {
+          logger.info("SSE event", { label, eventType: event.type });
+        }
+      }
+    } catch (err) {
+      // SDK throws APIError on HTTP failures and error SSE events
+      if (!status) {
+        lastError = err;
+        logger.error("SDK stream error", { label, error: err.message?.substring(0, 500) });
+        streamSpan.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+      }
+    } finally {
+      if (eventTimer) clearTimeout(eventTimer);
+    }
+
+    // Check output items for oauth_consent_request (may arrive without the SSE event)
+    if (!oauthConsentSent) {
+      for (const item of output) {
+        if (item.type === "oauth_consent_request") {
+          const consentUrl = item.consent_link || item.authorization_url || item.url || "";
+          if (consentUrl) {
+            logger.info("OAuth consent found in output", { label, url: consentUrl });
+            res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: consentUrl })}\n\n`);
+            oauthConsentSent = true;
+            break;
+          }
+        }
+      }
+    }
+
+    const oauthConsentUrl = oauthConsentSent ? "sent" : null;
+    streamSpan.setAttributes({
+      responseId: responseId || "",
+      status: status || "unknown",
+      outputCount: output.length,
+      textLength: textChunk.length,
+    });
+    streamSpan.end();
+    return { responseId, status, output, error: lastError, assistantChunk: textChunk, oauthConsentUrl };
+  });
+}
+
 router.post("/threads/:threadId/messages", async (req, res) => {
-  // Ensure an OTel span is available for trace correlation
-  const rootSpan = trace.getSpan(context.active()) || tracer.startSpan("chat.sendMessage");
-  const correlationId = rootSpan.spanContext().traceId;
-  res.setHeader("X-Trace-ID", correlationId);
+  await tracer.startActiveSpan("chat.sendMessage", async (rootSpan) => {
+  try {
+    const correlationId = rootSpan.spanContext().traceId;
+    res.setHeader("X-Trace-ID", correlationId);
 
   const threadId = Number(req.params.threadId);
   const userId = Number(req.jwtUser.sub);
@@ -307,21 +454,35 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     // 2. Store user message in DB
     await addChatMessage(threadId, "user", content, vaultKey);
 
-    // 3. Create response (streaming) via Responses API
+    // 3. Get SDK client and Foundry conversation ID for per-user OAuth isolation
+    const client = getOpenAIClient();
+    const foundryConversationId = await getThreadFoundryConversationId(threadId);
 
-    function buildResponseBody(inputData, extraOpts = {}) {
-      return {
+    function buildCreateParams(inputData, extraOpts = {}) {
+      const params = {
         input: inputData,
         stream: true,
         store: false,
         max_output_tokens: 16384,
-        agent_reference: {
-          name: FOUNDRY_AGENT_NAME,
-          type: "agent_reference",
-        },
         ...extraOpts,
       };
+      // Scope to Foundry conversation for per-user OAuth isolation
+      if (foundryConversationId && !extraOpts.previous_response_id) {
+        params.conversation = foundryConversationId;
+      }
+      return params;
     }
+
+    // SDK options: agent_reference is passed via body merge (Azure SDK wraps responses.create)
+    const abortController = new AbortController();
+    const overallTimeout = setTimeout(() => abortController.abort(), 360_000);
+    const sdkOpts = {
+      body: {
+        agent_reference: { name: FOUNDRY_AGENT_NAME, type: "agent_reference" },
+      },
+      signal: abortController.signal,
+      _abortController: abortController,
+    };
 
     // 4. Stream SSE response to client
     res.setHeader("Content-Type", "text/event-stream");
@@ -336,228 +497,18 @@ router.post("/threads/:threadId/messages", async (req, res) => {
       try { res.write(":heartbeat\n\n"); } catch { /* client gone */ }
     }, 15_000);
 
-    // Helper: stream one Foundry response, forwarding SSE to client.
-    // Returns { responseId, status, output, error, assistantChunk }.
-    const STREAM_TIMEOUT_MS = 300_000;
-    // AbortSignal for streaming fetches — must exceed STREAM_TIMEOUT_MS so the
-    // per-read timeout in streamFoundryResponse fires first with better diagnostics.
-    const streamSignal = AbortSignal.timeout(STREAM_TIMEOUT_MS + 60_000);
-    async function streamFoundryResponse(foundryRes, label = "main") {
-      return tracer.startActiveSpan("chat.streamResponse", { attributes: { label } }, async (streamSpan) => {
-      const reader = foundryRes.body.getReader();
-      const decoder = new TextDecoder();
-      let sseBuffer = "";
-      let responseId = null;
-      let status = null;
-      let output = [];
-      let lastError = null;
-      let textChunk = "";
-      let oauthConsentSent = false;
-
-      while (true) {
-        let result;
-        try {
-          result = await Promise.race([
-            reader.read(),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error("stream_timeout")), STREAM_TIMEOUT_MS),
-            ),
-          ]);
-        } catch {
-          logger.error("Stream timeout", { label });
-          streamSpan.setStatus({ code: SpanStatusCode.ERROR, message: "stream_timeout" });
-          reader.cancel();
-          break;
-        }
-        const { done, value } = result;
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-
-        sseBuffer += chunk;
-        const sseLines = sseBuffer.split("\n");
-        sseBuffer = sseLines.pop() || "";
-
-        for (const line of sseLines) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6);
-          if (data === "[DONE]") continue;
-          try {
-            const event = JSON.parse(data);
-            // Collect text
-            if (event.type === "response.output_text.delta" && event.delta) {
-              textChunk += event.delta;
-            }
-            const classicDelta = event?.delta?.content?.[0]?.text?.value;
-            if (classicDelta) textChunk += classicDelta;
-
-            // Track completion
-            if (event.type === "response.completed" && event.response) {
-              responseId = event.response.id;
-              status = event.response.status;
-              output = event.response.output || [];
-              logger.info("Response completed", {
-                label, responseId, status, outputCount: output.length,
-              });
-              for (const item of output) {
-                logger.info("Response output", {
-                  label, type: item.type,
-                  ...(item.type === "mcp_call" ? { mcpCallName: item.name } : {}),
-                });
-              }
-            }
-
-            // Track failures
-            if (event.type === "error") {
-              lastError = event.error || event;
-              logger.error("SSE error event", {
-                label, error: JSON.stringify(lastError).substring(0, 500),
-              });
-            }
-            if (event.type === "response.failed" && event.response) {
-              responseId = event.response.id;
-              status = "failed";
-              output = event.response.output || [];
-              const errDetail = event.response.error || event.response.last_error || lastError;
-              logger.error("Response FAILED", {
-                label, responseId,
-                error: JSON.stringify(errDetail).substring(0, 500),
-                outputCount: output.length,
-              });
-              streamSpan.setStatus({ code: SpanStatusCode.ERROR, message: "response.failed" });
-            }
-
-            // Detect OAuth consent request from Foundry (send at most once per response)
-            if (event.type === "response.oauth_consent_requested" && !oauthConsentSent) {
-              const consentUrl = event.consent_link || event.authorization_url || event.url || event.item?.consent_link || event.item?.authorization_url || event.item?.url || "";
-              if (consentUrl) {
-                logger.info("OAuth consent requested", { label, url: consentUrl });
-                res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: consentUrl })}\n\n`);
-                oauthConsentSent = true;
-                res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: consentUrl })}\n\n`);
-              } else {
-                logger.warn("OAuth consent event with no URL", { label, eventKeys: Object.keys(event).join(",") });
-              }
-            }
-
-            // Also detect oauth_consent_request in output_item.added events
-            if (event.type === "response.output_item.added" && event.item?.type === "oauth_consent_request" && !oauthConsentSent) {
-              const consentUrl = event.item.consent_link || event.item.authorization_url || event.item.url || "";
-              if (consentUrl) {
-                logger.info("OAuth consent from output item", { label, url: consentUrl });
-                res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: consentUrl })}\n\n`);
-                oauthConsentSent = true;
-              }
-            }
-
-            // Log MCP call details
-            if (event.type === "response.mcp_call.in_progress" && event.item) {
-              logger.info("MCP call starting", {
-                label,
-                mcpCallName: event.item.name || "?",
-                serverLabel: event.item.server_label || "?",
-              });
-            }
-
-            // Log MCP call results (including auth errors)
-            if (event.type === "response.mcp_call.completed" && event.item) {
-              const output = event.item.output || "";
-              const truncated = typeof output === "string" ? output.substring(0, 500) : JSON.stringify(output).substring(0, 500);
-              logger.info("MCP call completed", {
-                label,
-                mcpCallName: event.item.name || "?",
-                mcpOutput: truncated,
-              });
-            }
-            if (event.type === "response.output_item.done" && event.item?.type === "mcp_call") {
-              const output = event.item.output || "";
-              const truncated = typeof output === "string" ? output.substring(0, 500) : JSON.stringify(output).substring(0, 500);
-              logger.info("MCP call result", {
-                label,
-                mcpCallName: event.item.name || "?",
-                mcpOutput: truncated,
-              });
-            }
-
-            // Log non-delta events
-            if (event.type && !event.type.includes("delta")) {
-              logger.info("SSE event", { label, eventType: event.type });
-            }
-          } catch {
-            // skip unparseable
-          }
-        }
-
-        res.write(chunk);
-      }
-
-      // Check output items for oauth_consent_request (may arrive without the SSE event)
-      let oauthConsentUrl = null;
-      if (!oauthConsentSent) {
-        for (const item of output) {
-          if (item.type === "oauth_consent_request") {
-            oauthConsentUrl = item.consent_link || item.authorization_url || item.url || "";
-            if (oauthConsentUrl) {
-              logger.info("OAuth consent found in output", { label, url: oauthConsentUrl });
-              res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: oauthConsentUrl })}\n\n`);
-              oauthConsentSent = true;
-              break;
-            } else {
-              logger.warn("OAuth consent output item with no URL", { label, itemKeys: Object.keys(item).join(",") });
-            }
-          }
-        }
-      }
-
-      streamSpan.setAttributes({
-        responseId: responseId || "",
-        status: status || "unknown",
-        outputCount: output.length,
-        textLength: textChunk.length,
-      });
-      streamSpan.end();
-      return { responseId, status, output, error: lastError, assistantChunk: textChunk, oauthConsentUrl };
-      });
-    }
-
     try {
-      await tracer.startActiveSpan("chat.runAgent", { attributes: { threadId, model: "gpt-4.1" } }, async (agentSpan) => {
+      await tracer.startActiveSpan("chat.runAgent", { attributes: { threadId } }, async (agentSpan) => {
       const MAX_ATTEMPTS = 3;
-      let currentInput = input;
       let attempt = 0;
 
-      logger.info("Chat request", { threadId });
+      logger.info("Chat request", { threadId, conversationId: foundryConversationId || "none" });
 
       for (attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         const label = attempt === 0 ? "main" : `retry#${attempt}`;
-        const body = buildResponseBody(currentInput);
+        const params = buildCreateParams(input);
 
-        const runRes = await foundryFetch("/responses", {
-          method: "POST",
-          headers: { Accept: "text/event-stream" },
-          body: JSON.stringify(body),
-          signal: streamSignal,
-        });
-
-        if (!runRes.ok) {
-          const err = await runRes.text();
-          logger.error("Response creation failed", { label, status: runRes.status, error: err.substring(0, 500) });
-          if (attempt < MAX_ATTEMPTS - 1 && runRes.status === 429) {
-            logger.info("Rate limited, waiting 5s before retry", { attempt });
-            await new Promise(r => setTimeout(r, 5000));
-            continue;
-          }
-          if (!res.headersSent || res.getHeader("Content-Type") === "text/event-stream") {
-            const errMsg = "\n\n⚠️ I encountered an error. Please try again.";
-            assistantText += errMsg;
-            res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
-            res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
-          }
-          agentSpan.setStatus({ code: SpanStatusCode.ERROR, message: `HTTP ${runRes.status}` });
-          rootSpan.recordException(new Error(`Foundry response creation failed: HTTP ${runRes.status}`));
-          break;
-        }
-
-        const result = await streamFoundryResponse(runRes, label);
+        const result = await streamSDKResponse(client, params, sdkOpts, res, label);
         assistantText += result.assistantChunk;
 
         // OAuth consent requested — not a failure, user needs to authorize
@@ -578,8 +529,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           }
           const errMsg = "\n\n⚠️ I had trouble completing that request. Could you try rephrasing or breaking it into smaller questions?";
           assistantText += errMsg;
-          res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
-          res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
+          writeStreamError(res, correlationId, errMsg);
           agentSpan.setStatus({ code: SpanStatusCode.ERROR, message: "max_retries_exceeded" });
           rootSpan.recordException(new Error("Foundry response failed after max retries"));
           break;
@@ -595,8 +545,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           }
           const errMsg = "\n\n⚠️ The request timed out. Please try again.";
           assistantText += errMsg;
-          res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
-          res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
+          writeStreamError(res, correlationId, errMsg);
           agentSpan.setStatus({ code: SpanStatusCode.ERROR, message: "stream_timeout" });
           rootSpan.recordException(new Error("Stream ended without completion event (timeout)"));
           break;
@@ -622,24 +571,9 @@ router.post("/threads/:threadId/messages", async (req, res) => {
             round: continuationRound, status: lastStatus, outputCount: lastOutput.length,
           });
 
-          const contRes = await foundryFetch("/responses", {
-            method: "POST",
-            headers: { Accept: "text/event-stream" },
-            body: JSON.stringify(buildResponseBody(
-              [{ type: "response", id: responseId }],
-            )),
-            signal: streamSignal,
-          });
-          if (!contRes.ok) {
-            logger.error("Continuation HTTP failed", { round: continuationRound, status: contRes.status });
-            rootSpan.recordException(new Error(`Continuation HTTP failed: round ${continuationRound}, status ${contRes.status}`));
-            const errMsg = "\n\n⚠️ I encountered an error while completing my analysis. Please try again.";
-            assistantText += errMsg;
-            res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
-            res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
-            break;
-          }
-          const contResult = await streamFoundryResponse(contRes, `cont#${continuationRound}`);
+          // Use previous_response_id for continuations (mutually exclusive with conversation)
+          const contParams = buildCreateParams([], { previous_response_id: responseId });
+          const contResult = await streamSDKResponse(client, contParams, sdkOpts, res, `cont#${continuationRound}`);
           assistantText += contResult.assistantChunk;
           responseId = contResult.responseId;
           lastStatus = contResult.status;
@@ -650,8 +584,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
             rootSpan.recordException(new Error(`Continuation stream timeout: round ${continuationRound}`));
             const errMsg = "\n\n⚠️ The request timed out while completing the analysis. Please try again.";
             assistantText += errMsg;
-            res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
-            res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
+            writeStreamError(res, correlationId, errMsg);
             break;
           }
           if (contResult.status === "failed") {
@@ -659,8 +592,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
             rootSpan.recordException(new Error(`Continuation response failed: round ${continuationRound}`));
             const errMsg = "\n\n⚠️ I had trouble completing that request. Could you try rephrasing or breaking it into smaller questions?";
             assistantText += errMsg;
-            res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
-            res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
+            writeStreamError(res, correlationId, errMsg);
             break;
           }
         }
@@ -670,8 +602,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           rootSpan.recordException(new Error(`Max continuations reached: ${continuationRound}/${MAX_CONTINUATIONS}`));
           const errMsg = "\n\n⚠️ This request required too many steps. Please try breaking it into smaller questions.";
           assistantText += errMsg;
-          res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
-          res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
+          writeStreamError(res, correlationId, errMsg);
         }
 
         agentSpan.setAttributes({ attempt: attempt + 1, continuations: continuationRound });
@@ -683,13 +614,11 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     } catch (streamErr) {
       logger.error("Stream error", { error: streamErr.message });
       rootSpan.recordException(streamErr);
-      try {
-        const errMsg = "\n\n⚠️ I encountered an unexpected error. Please try again.";
-        assistantText += errMsg;
-        res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
-        res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
-      } catch { /* client gone */ }
+      const errMsg = "\n\n⚠️ I encountered an unexpected error. Please try again.";
+      assistantText += errMsg;
+      writeStreamError(res, correlationId, errMsg);
     } finally {
+      clearTimeout(overallTimeout);
       clearInterval(heartbeat);
       res.end();
     }
@@ -709,6 +638,10 @@ router.post("/threads/:threadId/messages", async (req, res) => {
       res.status(500).json({ error: "Failed to process message", correlationId });
     }
   }
+  } finally {
+    rootSpan.end();
+  }
+  });
 });
 
 export default router;

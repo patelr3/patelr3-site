@@ -180,6 +180,11 @@ export async function initDb() {
     ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS last_response_id TEXT DEFAULT NULL
   `);
 
+  // Add foundry_conversation_id for per-user Conversations API isolation
+  await pool.query(`
+    ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS foundry_conversation_id TEXT DEFAULT NULL
+  `);
+
   // Per-user vault keys for chat encryption (Bitwarden-inspired)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_vault_keys (
@@ -622,6 +627,21 @@ export async function updateThreadLastResponseId(threadId, responseId) {
   await pool.query(
     `UPDATE chat_threads SET last_response_id = $1, updated_at = NOW() WHERE id = $2`,
     [responseId, threadId]
+  );
+}
+
+export async function getThreadFoundryConversationId(threadId) {
+  const { rows } = await pool.query(
+    `SELECT foundry_conversation_id FROM chat_threads WHERE id = $1`,
+    [threadId]
+  );
+  return rows[0]?.foundry_conversation_id || null;
+}
+
+export async function updateThreadFoundryConversationId(threadId, conversationId) {
+  await pool.query(
+    `UPDATE chat_threads SET foundry_conversation_id = $1, updated_at = NOW() WHERE id = $2`,
+    [conversationId, threadId]
   );
 }
 

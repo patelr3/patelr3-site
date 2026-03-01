@@ -43,6 +43,8 @@ const mockDb = {
   getThreadSummary: jest.fn(),
   getThreadLastResponseId: jest.fn().mockResolvedValue(null),
   updateThreadLastResponseId: jest.fn().mockResolvedValue(),
+  getThreadFoundryConversationId: jest.fn().mockResolvedValue(null),
+  updateThreadFoundryConversationId: jest.fn().mockResolvedValue(),
   storeVaultKey: jest.fn(),
   getWrappedVaultKey: jest.fn(),
 };
@@ -53,6 +55,15 @@ jest.unstable_mockModule("../src/db.js", () => mockDb);
 jest.unstable_mockModule("@azure/identity", () => ({
   DefaultAzureCredential: jest.fn().mockImplementation(() => ({
     getToken: jest.fn().mockResolvedValue({ token: "mock-azure-token" }),
+  })),
+}));
+
+jest.unstable_mockModule("@azure/ai-projects", () => ({
+  AIProjectClient: jest.fn().mockImplementation(() => ({
+    getOpenAIClient: jest.fn().mockReturnValue({
+      responses: { create: jest.fn().mockResolvedValue({ id: "mock", output: [], status: "completed" }) },
+      conversations: { create: jest.fn().mockResolvedValue({ id: "conv_mock" }) },
+    }),
   })),
 }));
 
