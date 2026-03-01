@@ -374,6 +374,9 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     // Helper: stream one Foundry response, forwarding SSE to client.
     // Returns { responseId, status, output, error, assistantChunk }.
     const STREAM_TIMEOUT_MS = 300_000;
+    // AbortSignal for streaming fetches — must exceed STREAM_TIMEOUT_MS so the
+    // per-read timeout in streamFoundryResponse fires first with better diagnostics.
+    const streamSignal = AbortSignal.timeout(STREAM_TIMEOUT_MS + 60_000);
     async function streamFoundryResponse(foundryRes, label = "main") {
       return tracer.startActiveSpan("chat.streamResponse", { attributes: { label } }, async (streamSpan) => {
       const reader = foundryRes.body.getReader();
@@ -503,6 +506,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           method: "POST",
           headers: { Accept: "text/event-stream" },
           body: JSON.stringify(body),
+          signal: streamSignal,
         });
 
         if (!runRes.ok) {
@@ -586,6 +590,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
             body: JSON.stringify(buildResponseBody(
               [{ type: "response", id: responseId }],
             )),
+            signal: streamSignal,
           });
           if (!contRes.ok) {
             logger.error("Continuation HTTP failed", { round: continuationRound, status: contRes.status });
