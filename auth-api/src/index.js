@@ -1,3 +1,4 @@
+import "./tracing.js"; // must be first — initializes OTel before Express loads
 import { initDb } from "./db.js";
 import app from "./app.js";
 import config from "./config.js";

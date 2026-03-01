@@ -5,6 +5,8 @@ import { Router } from "express";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { trace, SpanStatusCode } from "./tracing.js";
+import logger from "./logger.js";
 import config from "./config.js";
 import {
   createThread, getUserThreads, deleteThread,
@@ -13,6 +15,7 @@ import {
 } from "./db.js";
 
 const router = Router();
+const tracer = trace.getTracer("chat");
 
 // Azure AI Foundry config
 const FOUNDRY_ENDPOINT = config.foundryProjectEndpoint;
@@ -56,31 +59,40 @@ const SUMMARY_THRESHOLD = 10;  // summarize when > 10 messages
 const RECENT_MESSAGES_KEEP = 6; // keep last 6 messages verbatim
 
 async function getAzureToken() {
-  try {
-    const { DefaultAzureCredential } = await import("@azure/identity");
-    const credential = new DefaultAzureCredential();
-    const token = await credential.getToken("https://ai.azure.com/.default");
-    return token.token;
-  } catch (err) {
-    console.error("[chat] Failed to get Azure token:", err.message);
-    throw err;
-  }
+  return tracer.startActiveSpan("chat.getAzureToken", async (span) => {
+    try {
+      const { DefaultAzureCredential } = await import("@azure/identity");
+      const credential = new DefaultAzureCredential();
+      const token = await credential.getToken("https://ai.azure.com/.default");
+      span.end();
+      return token.token;
+    } catch (err) {
+      logger.error("Failed to get Azure token", { error: err.message });
+      span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+      span.end();
+      throw err;
+    }
+  });
 }
 
 async function foundryFetch(path, opts = {}) {
-  const token = await getAzureToken();
-  const url = `${OPENAI_BASE}${path}`;
-  console.log(`[chat] Foundry request: ${opts.method || "GET"} ${url}`);
-  const res = await fetch(url, {
-    ...opts,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...opts.headers,
-    },
+  return tracer.startActiveSpan("chat.foundryFetch", { attributes: { "http.method": opts.method || "GET", "http.url": path } }, async (span) => {
+    const token = await getAzureToken();
+    const url = `${OPENAI_BASE}${path}`;
+    logger.info("Foundry request", { method: opts.method || "GET", url });
+    const res = await fetch(url, {
+      ...opts,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...opts.headers,
+      },
+    });
+    logger.info("Foundry response", { status: res.status, statusText: res.statusText, url });
+    span.setAttribute("http.status_code", res.status);
+    span.end();
+    return res;
   });
-  console.log(`[chat] Foundry response: ${res.status} ${res.statusText}`);
-  return res;
 }
 
 // ── Health check ───────────────────────────────────────────────
@@ -124,7 +136,7 @@ router.get("/threads", async (req, res) => {
     const threads = await getUserThreads(Number(req.jwtUser.sub));
     res.json(threads);
   } catch (err) {
-    console.error("[chat] Failed to list threads:", err);
+    logger.error("Failed to list threads", { error: err.message });
     res.status(500).json({ error: "Failed to list threads" });
   }
 });
@@ -139,7 +151,7 @@ router.post("/threads", async (req, res) => {
     );
     res.status(201).json(thread);
   } catch (err) {
-    console.error("[chat] Thread creation error:", err);
+    logger.error("Thread creation error", { error: err.message });
     res.status(500).json({ error: "Failed to create thread" });
   }
 });
@@ -154,7 +166,7 @@ router.delete("/threads/:threadId", async (req, res) => {
     if (!deleted) return res.status(404).json({ error: "Thread not found" });
     res.json({ success: true });
   } catch (err) {
-    console.error("[chat] Thread deletion error:", err);
+    logger.error("Thread deletion error", { error: err.message });
     res.status(500).json({ error: "Failed to delete thread" });
   }
 });
@@ -170,7 +182,7 @@ router.get("/threads/:threadId/messages", async (req, res) => {
     }));
     res.json({ data });
   } catch (err) {
-    console.error("[chat] Get messages error:", err);
+    logger.error("Get messages error", { error: err.message });
     res.status(500).json({ error: "Failed to get messages" });
   }
 });
@@ -248,7 +260,7 @@ async function maybeSummarize(threadId) {
       }
     }
   } catch (err) {
-    console.error("[chat] Summarization failed (non-critical):", err.message);
+    logger.error("Summarization failed (non-critical)", { error: err.message });
   }
 }
 
@@ -326,6 +338,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     // Returns { responseId, status, output, error, assistantChunk }.
     const STREAM_TIMEOUT_MS = 300_000;
     async function streamFoundryResponse(foundryRes, label = "main") {
+      return tracer.startActiveSpan("chat.streamResponse", { attributes: { label } }, async (streamSpan) => {
       const reader = foundryRes.body.getReader();
       const decoder = new TextDecoder();
       let sseBuffer = "";
@@ -345,7 +358,8 @@ router.post("/threads/:threadId/messages", async (req, res) => {
             ),
           ]);
         } catch {
-          console.error(`[chat] Stream timeout (${label})`);
+          logger.error("Stream timeout", { label });
+          streamSpan.setStatus({ code: SpanStatusCode.ERROR, message: "stream_timeout" });
           reader.cancel();
           break;
         }
@@ -375,33 +389,49 @@ router.post("/threads/:threadId/messages", async (req, res) => {
               responseId = event.response.id;
               status = event.response.status;
               output = event.response.output || [];
-              console.log(`[chat] Response completed (${label}): id=${responseId} status=${status} outputs=${output.length}`);
+              logger.info("Response completed", {
+                label, responseId, status, outputCount: output.length,
+              });
               for (const item of output) {
-                console.log(`[chat]   output: type=${item.type}${item.type === "mcp_call" ? ` name=${item.name}` : ""}`);
+                logger.info("Response output", {
+                  label, type: item.type,
+                  ...(item.type === "mcp_call" ? { mcpCallName: item.name } : {}),
+                });
               }
             }
 
-            // Track failures — capture full error detail
+            // Track failures
             if (event.type === "error") {
               lastError = event.error || event;
-              console.error(`[chat] SSE error event (${label}):`, JSON.stringify(lastError).substring(0, 500));
+              logger.error("SSE error event", {
+                label, error: JSON.stringify(lastError).substring(0, 500),
+              });
             }
             if (event.type === "response.failed" && event.response) {
               responseId = event.response.id;
               status = "failed";
               output = event.response.output || [];
               const errDetail = event.response.error || event.response.last_error || lastError;
-              console.error(`[chat] Response FAILED (${label}): id=${responseId} error=${JSON.stringify(errDetail).substring(0, 500)} outputs=${output.length}`);
+              logger.error("Response FAILED", {
+                label, responseId,
+                error: JSON.stringify(errDetail).substring(0, 500),
+                outputCount: output.length,
+              });
+              streamSpan.setStatus({ code: SpanStatusCode.ERROR, message: "response.failed" });
             }
 
             // Log MCP call details
             if (event.type === "response.mcp_call.in_progress" && event.item) {
-              console.log(`[chat] MCP call starting (${label}): name=${event.item.name || "?"} server=${event.item.server_label || "?"}`);
+              logger.info("MCP call starting", {
+                label,
+                mcpCallName: event.item.name || "?",
+                serverLabel: event.item.server_label || "?",
+              });
             }
 
             // Log non-delta events
             if (event.type && !event.type.includes("delta")) {
-              console.log(`[chat] SSE event (${label}): ${event.type}`);
+              logger.info("SSE event", { label, eventType: event.type });
             }
           } catch {
             // skip unparseable
@@ -411,10 +441,19 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         res.write(chunk);
       }
 
+      streamSpan.setAttributes({
+        responseId: responseId || "",
+        status: status || "unknown",
+        outputCount: output.length,
+        textLength: textChunk.length,
+      });
+      streamSpan.end();
       return { responseId, status, output, error: lastError, assistantChunk: textChunk };
+      });
     }
 
     try {
+      await tracer.startActiveSpan("chat.runAgent", { attributes: { threadId, model: "gpt-5.2-chat" } }, async (agentSpan) => {
       const MAX_ATTEMPTS = 3;
       let currentInput = input;
       let attempt = 0;
@@ -431,18 +470,18 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
         if (!runRes.ok) {
           const err = await runRes.text();
-          console.error(`[chat] Response creation failed (${label}, ${runRes.status}):`, err.substring(0, 500));
+          logger.error("Response creation failed", { label, status: runRes.status, error: err.substring(0, 500) });
           if (attempt < MAX_ATTEMPTS - 1 && runRes.status === 429) {
-            console.log(`[chat] Rate limited, waiting 5s before retry`);
+            logger.info("Rate limited, waiting 5s before retry", { attempt });
             await new Promise(r => setTimeout(r, 5000));
             continue;
           }
           if (!res.headersSent || res.getHeader("Content-Type") === "text/event-stream") {
-            // Already in SSE mode from a prior attempt — send error as text
             const errMsg = "\n\n⚠️ I encountered an error. Please try again.";
             assistantText += errMsg;
             res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
           }
+          agentSpan.setStatus({ code: SpanStatusCode.ERROR, message: `HTTP ${runRes.status}` });
           break;
         }
 
@@ -450,19 +489,19 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         assistantText += result.assistantChunk;
 
         if (result.status === "failed") {
-          console.error(`[chat] Response failed on attempt ${attempt + 1}, error: ${JSON.stringify(result.error).substring(0, 300)}`);
+          logger.error("Response failed on attempt", {
+            attempt: attempt + 1, error: JSON.stringify(result.error).substring(0, 300),
+          });
           if (attempt < MAX_ATTEMPTS - 1) {
-            // Wait briefly, then retry with same input
-            console.log(`[chat] Retrying after failure (attempt ${attempt + 2}/${MAX_ATTEMPTS})`);
+            logger.info("Retrying after failure", { attempt: attempt + 2, maxAttempts: MAX_ATTEMPTS });
             await new Promise(r => setTimeout(r, 2000));
-            // Send a status event so the frontend shows retry activity
             res.write(`data: ${JSON.stringify({ type: "response.in_progress" })}\n\n`);
             continue;
           }
-          // Final attempt failed — tell the user
           const errMsg = "\n\n⚠️ I had trouble completing that request. Could you try rephrasing or breaking it into smaller questions?";
           assistantText += errMsg;
           res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
+          agentSpan.setStatus({ code: SpanStatusCode.ERROR, message: "max_retries_exceeded" });
           break;
         }
 
@@ -482,7 +521,9 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           if (!needsContinuation) break;
 
           continuationRound++;
-          console.log(`[chat] Continuation #${continuationRound}: status=${lastStatus} outputs=${lastOutput.length}`);
+          logger.info("Continuation round", {
+            round: continuationRound, status: lastStatus, outputCount: lastOutput.length,
+          });
 
           const contRes = await foundryFetch("/responses", {
             method: "POST",
@@ -492,7 +533,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
             )),
           });
           if (!contRes.ok) {
-            console.error(`[chat] Continuation #${continuationRound} failed: ${contRes.status}`);
+            logger.error("Continuation failed", { round: continuationRound, status: contRes.status });
             break;
           }
           const contResult = await streamFoundryResponse(contRes, `cont#${continuationRound}`);
@@ -502,16 +543,19 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           lastOutput = contResult.output;
 
           if (contResult.status === "failed") {
-            console.error(`[chat] Continuation #${continuationRound} failed`);
+            logger.error("Continuation failed", { round: continuationRound });
             break;
           }
         }
 
+        agentSpan.setAttributes({ attempt: attempt + 1, continuations: continuationRound });
         // If we reached here without failure, we're done
         if (result.status !== "failed") break;
       }
+      agentSpan.end();
+      });
     } catch (streamErr) {
-      console.error("[chat] Stream error:", streamErr);
+      logger.error("Stream error", { error: streamErr.message });
     } finally {
       clearInterval(heartbeat);
       res.end();
@@ -520,13 +564,13 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     // 5. Store assistant response in DB (async, non-blocking)
     if (assistantText) {
       addChatMessage(threadId, "assistant", assistantText).catch(err =>
-        console.error("[chat] Failed to store assistant message:", err),
+        logger.error("Failed to store assistant message", { error: err.message }),
       );
       // Trigger summarization in background
       maybeSummarize(threadId).catch(() => {});
     }
   } catch (err) {
-    console.error("[chat] Message/run error:", err);
+    logger.error("Message/run error", { error: err.message });
     if (!res.headersSent) {
       res.status(500).json({ error: "Failed to process message" });
     }

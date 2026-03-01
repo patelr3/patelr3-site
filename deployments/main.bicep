@@ -121,6 +121,7 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'FOUNDRY_AGENT_NAME', secretRef: 'foundry-agent-name' }
       { name: 'FOUNDRY_AGENT_ID', secretRef: 'foundry-agent-id' }
       { name: 'MCP_SERVER_URL', value: 'https://${projectName}-mcp-server.${cae.outputs.defaultDomain}' }
+      { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
     ]
     secrets: [
       { name: 'google-client-id', keyVaultUrl: '${kvSecretsUrl}/google-client-id', identity: kvReaderIdentity.id }
@@ -131,6 +132,7 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'foundry-project-endpoint', keyVaultUrl: '${kvSecretsUrl}/foundry-project-endpoint', identity: kvReaderIdentity.id }
       { name: 'foundry-agent-name', keyVaultUrl: '${kvSecretsUrl}/foundry-agent-name', identity: kvReaderIdentity.id }
       { name: 'foundry-agent-id', keyVaultUrl: '${kvSecretsUrl}/foundry-agent-id', identity: kvReaderIdentity.id }
+      { name: 'appinsights-connection-string', keyVaultUrl: '${kvSecretsUrl}/appinsights-connection-string', identity: kvReaderIdentity.id }
     ]
   }
 }
