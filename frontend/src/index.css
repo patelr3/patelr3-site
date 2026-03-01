@@ -823,6 +823,13 @@ nav a { text-decoration: none; }
   margin: 0.5em 0;
 }
 .sunnieai-msg-user { flex-direction: row-reverse; }
+.sunnieai-msg-status .sunnieai-msg-content {
+  background: transparent;
+  color: #888;
+  font-style: italic;
+  padding: 0.25rem 0;
+  font-size: 0.85rem;
+}
 
 .sunnieai-input {
   display: flex;

@@ -52,8 +52,7 @@ export default function SunnieAI() {
       const decoder = new TextDecoder();
       let buffer = "";
       let assistantText = "";
-
-      setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+      let currentPhase = null; // "streaming" | "tool" | "consent"
 
       while (true) {
         const { done, value } = await reader.read();
@@ -75,80 +74,68 @@ export default function SunnieAI() {
         }
       }
 
-      let hasReceivedDelta = false;
-
       function handleSseEvent(type, data, originalText) {
         switch (type) {
           case "text_delta":
-            hasReceivedDelta = true;
             assistantText += data.delta;
-            setMessages((prev) => {
-              const updated = [...prev];
-              updated[updated.length - 1] = { role: "assistant", content: assistantText };
-              return updated;
-            });
-            break;
-
-          case "message":
-            // Only use final message text if no deltas were streamed (fallback),
-            // or to correct the accumulated text with the authoritative version
-            assistantText = data.text;
-            setMessages((prev) => {
-              const updated = [...prev];
-              updated[updated.length - 1] = { role: "assistant", content: data.text };
-              return updated;
-            });
-            break;
-
-          case "tool_call":
-            // Show tool execution status (only if no real text has arrived yet)
-            if (!hasReceivedDelta) {
+            if (currentPhase !== "streaming") {
+              // New text phase — append a new message bubble
+              currentPhase = "streaming";
+              setMessages((prev) => [...prev, { role: "assistant", content: assistantText }]);
+            } else {
+              // Continue streaming into current bubble
               setMessages((prev) => {
                 const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "assistant",
-                  content: `🔧 Looking up your data...`,
-                };
+                updated[updated.length - 1] = { role: "assistant", content: assistantText };
                 return updated;
               });
             }
             break;
 
+          case "message":
+            // Final authoritative text — update current streaming bubble or create new
+            assistantText = data.text;
+            if (currentPhase === "streaming") {
+              setMessages((prev) => {
+                const updated = [...prev];
+                updated[updated.length - 1] = { role: "assistant", content: data.text };
+                return updated;
+              });
+            } else {
+              currentPhase = "streaming";
+              setMessages((prev) => [...prev, { role: "assistant", content: data.text }]);
+            }
+            break;
+
+          case "tool_call":
+            // Separate bubble for tool status
+            currentPhase = "tool";
+            assistantText = "";
+            setMessages((prev) => [...prev, { role: "status", content: `🔧 Looking up your data...` }]);
+            break;
+
           case "oauth_consent":
+            currentPhase = "consent";
+            assistantText = "";
             setConsentLink(data.consentLink);
             setPendingRetry({ text: originalText, responseId: data.responseId });
-            setMessages((prev) => {
-              const updated = [...prev];
-              updated[updated.length - 1] = {
-                role: "assistant",
-                content: "I need access to your budget data. Please click the button below to authorize.",
-              };
-              return updated;
-            });
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: "I need access to your budget data. Please click the button below to authorize." },
+            ]);
             break;
 
           case "error":
-            setMessages((prev) => {
-              const updated = [...prev];
-              updated[updated.length - 1] = {
-                role: "assistant",
-                content: `Error: ${data.error}`,
-              };
-              return updated;
-            });
+            currentPhase = "error";
+            setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${data.error}` }]);
             break;
         }
       }
     } catch (err) {
-      setMessages((prev) => {
-        const updated = [...prev];
-        if (updated.length > 0 && updated[updated.length - 1].role === "assistant" && !updated[updated.length - 1].content) {
-          updated[updated.length - 1] = { role: "assistant", content: `Error: ${err.message}` };
-        } else {
-          updated.push({ role: "assistant", content: `Error: ${err.message}` });
-        }
-        return updated;
-      });
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `Error: ${err.message}` },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -210,7 +197,9 @@ export default function SunnieAI() {
           )}
           {messages.map((msg, i) => (
             <div key={i} className={`sunnieai-msg sunnieai-msg-${msg.role}`}>
-              <span className="sunnieai-msg-avatar">{msg.role === "user" ? "👤" : "🤖"}</span>
+              <span className="sunnieai-msg-avatar">
+                {msg.role === "user" ? "👤" : msg.role === "status" ? "⚙️" : "🤖"}
+              </span>
               <div className="sunnieai-msg-content">{msg.content}</div>
             </div>
           ))}
