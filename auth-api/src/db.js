@@ -123,24 +123,28 @@ export async function initDb() {
   // OIDC access tokens (persistent, replaces in-memory store)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS oidc_access_tokens (
-      token       VARCHAR(255) PRIMARY KEY,
+      token       TEXT PRIMARY KEY,
       user_id     INT REFERENCES users(id) ON DELETE CASCADE,
       claims      JSONB NOT NULL,
       expires_at  TIMESTAMPTZ NOT NULL,
       created_at  TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Widen token column if it was previously VARCHAR(255)
+  await pool.query(`ALTER TABLE oidc_access_tokens ALTER COLUMN token TYPE TEXT`);
 
   // OIDC refresh tokens (for refresh_token grant)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS oidc_refresh_tokens (
-      token       VARCHAR(255) PRIMARY KEY,
+      token       TEXT PRIMARY KEY,
       user_id     INT REFERENCES users(id) ON DELETE CASCADE,
       client_id   VARCHAR(255) NOT NULL,
       expires_at  TIMESTAMPTZ NOT NULL,
       created_at  TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Widen token column if it was previously VARCHAR(255)
+  await pool.query(`ALTER TABLE oidc_refresh_tokens ALTER COLUMN token TYPE TEXT`);
 
   // Chat threads (user conversations)
   await pool.query(`
