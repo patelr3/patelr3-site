@@ -256,6 +256,7 @@ module frontend 'modules/container-app.bicep' = {
       { name: 'AUTH_API_UPSTREAM', value: 'http://${projectName}-auth-api' }
       { name: 'HELLO_API_UPSTREAM', value: 'http://${projectName}-hello-world' }
       { name: 'HELLO_RESTRICTED_API_UPSTREAM', value: 'http://${projectName}-hello-world-restricted' }
+      { name: 'MCP_SERVER_UPSTREAM', value: 'http://${projectName}-mcp-server' }
     ]
     secrets: []
     customDomains: [
