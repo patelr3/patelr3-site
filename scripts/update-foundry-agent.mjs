@@ -140,6 +140,7 @@ async function main() {
       {
         type: "mcp",
         server_label: "sunniebudget-mcp-2",
+        server_url: "https://www.arayosun.com/api/mcp/mcp",
         project_connection_id: MCP_CONNECTION_ID,
         require_approval: "never",
       },
