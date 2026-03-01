@@ -356,8 +356,21 @@ async function issueTokens(userId, clientId, claims) {
     .setExpirationTime(now + 3600)
     .sign(signingKey);
 
-  // Generate opaque access token and store in Postgres
-  const accessToken = crypto.randomBytes(32).toString("hex");
+  // Issue access token as RS256 JWT so downstream services (e.g. MCP server)
+  // can validate it via JWKS without calling back to the IdP.
+  const accessToken = await new SignJWT({
+    email: claims.email,
+    name: claims.name,
+    preferred_username: claims.preferred_username || claims.email,
+    role: "user",
+  })
+    .setProtectedHeader({ alg: "RS256", kid: KID })
+    .setIssuer(iss)
+    .setSubject(String(userId))
+    .setIssuedAt(now)
+    .setExpirationTime(now + 3600)
+    .sign(signingKey);
+
   const accessExpiresAt = new Date(Date.now() + 3600 * 1000);
   await storeOidcAccessToken(accessToken, userId, claims, accessExpiresAt);
 

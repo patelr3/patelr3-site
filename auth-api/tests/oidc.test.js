@@ -254,6 +254,15 @@ describe("OIDC Token", () => {
     expect(res.body.refresh_token).toBeDefined();
     expect(res.body.refresh_token.length).toBe(128); // 64 bytes hex
 
+    // Access token should be a valid RS256 JWT (not opaque)
+    const atParts = res.body.access_token.split(".");
+    expect(atParts.length).toBe(3);
+    const atPayload = JSON.parse(Buffer.from(atParts[1], "base64url").toString());
+    expect(atPayload.sub).toBe("42");
+    expect(atPayload.email).toBe("test@test.com");
+    expect(atPayload.name).toBe("Test User");
+    expect(atPayload.role).toBe("user");
+
     // ID token should be a valid JWT
     const parts = res.body.id_token.split(".");
     expect(parts.length).toBe(3);
