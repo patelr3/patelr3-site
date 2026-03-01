@@ -268,6 +268,24 @@ export default function SunnieAI({ user }) {
                 correlationId = event.correlationId || null;
                 continue;
               }
+              // Handle OAuth consent request — show authorization link
+              if (event.type === "oauth_consent" && event.url) {
+                const consentMsg =
+                  "🔐 To access your budget data, please authorize SunnieAI:\n\n" +
+                  `[Authorize SunnieAI](${event.url})\n\n` +
+                  "After authorizing, send your message again.";
+                assistantText = consentMsg;
+                setAgentStatus(null);
+                setMessages((prev) => {
+                  const updated = [...prev];
+                  updated[updated.length - 1] = {
+                    role: "assistant",
+                    content: consentMsg,
+                  };
+                  return updated;
+                });
+                continue;
+              }
               // Extract text delta — new Responses API format + classic fallback
               const delta =
                 (event.type === "response.output_text.delta" && event.delta) ||
@@ -445,7 +463,14 @@ export default function SunnieAI({ user }) {
                 </div>
                 <div className="sunnieai-msg-content">
                   {msg.role === "assistant" ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        a: ({ href, children }) => (
+                          <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+                        ),
+                      }}
+                    >
                       {msg.content || (streaming && i === messages.length - 1 && agentStatus ? agentStatus : "")}
                     </ReactMarkdown>
                   ) : (

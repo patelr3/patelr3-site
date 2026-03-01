@@ -132,7 +132,7 @@ router.get("/health", async (_req, res) => {
       method: "POST",
       body: JSON.stringify({
         input: "test",
-        model: "gpt-5.2-chat",
+        model: "gpt-4.1",
         store: false,
         max_output_tokens: 16,
       }),
@@ -264,7 +264,7 @@ async function maybeSummarize(threadId, vaultKey = null) {
               content: `Summarize this conversation in 2-3 concise sentences, preserving key facts and decisions:\n\n${summaryPrompt}`,
             },
           ],
-          model: "gpt-5.2-chat",
+          model: "gpt-4.1",
           store: false,
           max_output_tokens: 200,
         }),
@@ -349,7 +349,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         };
       } else {
         // Inline mode: specify model + instructions + tools directly
-        body.model = "gpt-5.2-chat";
+        body.model = "gpt-4.1";
         body.instructions = getAgentInstructions();
         if (mcpTools.length > 0) {
           body.tools = mcpTools;
@@ -460,6 +460,15 @@ router.post("/threads/:threadId/messages", async (req, res) => {
               streamSpan.setStatus({ code: SpanStatusCode.ERROR, message: "response.failed" });
             }
 
+            // Detect OAuth consent request from Foundry
+            if (event.type === "response.oauth_consent_requested") {
+              const consentUrl = event.url || event.item?.url || "";
+              if (consentUrl) {
+                logger.info("OAuth consent requested", { label, url: consentUrl });
+                res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: consentUrl })}\n\n`);
+              }
+            }
+
             // Log MCP call details
             if (event.type === "response.mcp_call.in_progress" && event.item) {
               logger.info("MCP call starting", {
@@ -481,6 +490,18 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         res.write(chunk);
       }
 
+      // Check output items for oauth_consent_request (may arrive without the SSE event)
+      let oauthConsentUrl = null;
+      for (const item of output) {
+        if (item.type === "oauth_consent_request") {
+          oauthConsentUrl = item.url || "";
+          if (oauthConsentUrl) {
+            logger.info("OAuth consent found in output", { label, url: oauthConsentUrl });
+            res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: oauthConsentUrl })}\n\n`);
+          }
+        }
+      }
+
       streamSpan.setAttributes({
         responseId: responseId || "",
         status: status || "unknown",
@@ -488,12 +509,12 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         textLength: textChunk.length,
       });
       streamSpan.end();
-      return { responseId, status, output, error: lastError, assistantChunk: textChunk };
+      return { responseId, status, output, error: lastError, assistantChunk: textChunk, oauthConsentUrl };
       });
     }
 
     try {
-      await tracer.startActiveSpan("chat.runAgent", { attributes: { threadId, model: "gpt-5.2-chat" } }, async (agentSpan) => {
+      await tracer.startActiveSpan("chat.runAgent", { attributes: { threadId, model: "gpt-4.1" } }, async (agentSpan) => {
       const MAX_ATTEMPTS = 3;
       let currentInput = input;
       let attempt = 0;
@@ -529,6 +550,12 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
         const result = await streamFoundryResponse(runRes, label);
         assistantText += result.assistantChunk;
+
+        // OAuth consent requested — not a failure, user needs to authorize
+        if (result.oauthConsentUrl) {
+          logger.info("OAuth consent flow — stopping retries", { attempt: attempt + 1 });
+          break;
+        }
 
         if (result.status === "failed") {
           logger.error("Response failed on attempt", {
