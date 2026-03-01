@@ -80,10 +80,42 @@ This policy is enforced by the logger's design — it only accepts structured at
 
 ### Master Key Rotation
 
-1. Generate a new master key: `openssl rand -hex 32`
-2. Run the re-wrap script (decrypt vault keys with old master, re-wrap with new)
-3. Update AKV secret `chat-encryption-key` with the new value
-4. Deploy a new revision to pick up the new key
+### Master Key Rotation
+
+Rotation is **automated monthly** via GitHub Actions (`.github/workflows/rotate-keys.yml`):
+
+1. **Schedule**: Runs on the 1st of each month at 6am UTC
+2. **Manual trigger**: Available via `workflow_dispatch` in the Actions tab
+3. **Process**:
+   - Reads current master key from AKV
+   - Generates a new 256-bit key
+   - Dry-runs the rotation script to verify all vault keys can be unwrapped
+   - Executes the rotation (re-wraps all vault keys with new master key)
+   - Updates AKV with the new key
+   - Restarts the auth-api ACA revision to pick up the new key immediately
+   - Verifies rotation by unwrapping sample vault keys with the new key
+
+**Manual rotation** (if needed outside the schedule):
+
+```bash
+# Generate new key
+NEW_KEY=$(openssl rand -hex 32)
+
+# Read current key from AKV
+OLD_KEY=$(az keyvault secret show --vault-name patelr3kvl3ytczhajsp7i --name chat-encryption-key --query value -o tsv)
+DATABASE_URL=$(az keyvault secret show --vault-name patelr3kvl3ytczhajsp7i --name database-url --query value -o tsv)
+
+# Dry run first
+OLD_KEY=$OLD_KEY NEW_KEY=$NEW_KEY DATABASE_URL=$DATABASE_URL node auth-api/scripts/rotate-master-key.js
+
+# Execute
+OLD_KEY=$OLD_KEY NEW_KEY=$NEW_KEY DATABASE_URL=$DATABASE_URL node auth-api/scripts/rotate-master-key.js --execute
+
+# Update AKV
+az keyvault secret set --vault-name patelr3kvl3ytczhajsp7i --name chat-encryption-key --value $NEW_KEY
+```
+
+**Safety**: The script runs before AKV is updated. If rotation fails, the old key is still active and all data remains accessible.
 
 ### Per-User Key Issues
 

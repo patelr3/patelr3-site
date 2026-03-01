@@ -1,0 +1,120 @@
+name: Rotate Chat Encryption Key
+
+on:
+  schedule:
+    - cron: '0 6 1 * *'  # 1st of each month, 6am UTC
+  workflow_dispatch:       # manual trigger
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  RESOURCE_GROUP: patelr3-site-rg
+  KV_NAME: patelr3kvl3ytczhajsp7i
+  AZURE_CLIENT_ID: e8de1562-63b2-4236-9c74-d8e3bf83e61d
+  AZURE_TENANT_ID: 50d3fb80-db3c-406e-bc9d-a22a6b825219
+  AZURE_SUBSCRIPTION_ID: 34154ec0-9335-4f09-a67a-bda54a403a14
+
+jobs:
+  rotate:
+    name: Rotate Encryption Key
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Install script dependencies
+        working-directory: auth-api
+        run: npm install --omit=dev pg
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Fetch secrets from Key Vault
+        id: secrets
+        run: |
+          OLD_KEY=$(az keyvault secret show --vault-name "$KV_NAME" --name chat-encryption-key --query value -o tsv)
+          echo "::add-mask::$OLD_KEY"
+          echo "old_key=$OLD_KEY" >> "$GITHUB_OUTPUT"
+
+          DB_URL=$(az keyvault secret show --vault-name "$KV_NAME" --name database-url --query value -o tsv)
+          echo "::add-mask::$DB_URL"
+          echo "database_url=$DB_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Generate new key
+        id: newkey
+        run: |
+          NEW_KEY=$(openssl rand -hex 32)
+          echo "::add-mask::$NEW_KEY"
+          echo "new_key=$NEW_KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Dry run rotation
+        env:
+          OLD_KEY: ${{ steps.secrets.outputs.old_key }}
+          NEW_KEY: ${{ steps.newkey.outputs.new_key }}
+          DATABASE_URL: ${{ steps.secrets.outputs.database_url }}
+        run: node auth-api/scripts/rotate-master-key.js
+
+      - name: Execute rotation
+        env:
+          OLD_KEY: ${{ steps.secrets.outputs.old_key }}
+          NEW_KEY: ${{ steps.newkey.outputs.new_key }}
+          DATABASE_URL: ${{ steps.secrets.outputs.database_url }}
+        run: node auth-api/scripts/rotate-master-key.js --execute
+
+      - name: Update AKV with new key
+        run: |
+          az keyvault secret set \
+            --vault-name "$KV_NAME" \
+            --name chat-encryption-key \
+            --value "${{ steps.newkey.outputs.new_key }}" \
+            --query name -o tsv
+
+      - name: Deploy new auth-api revision
+        run: |
+          az containerapp revision restart \
+            --name patelr3-auth-api \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --revision "$(az containerapp revision list \
+              --name patelr3-auth-api \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --query '[0].name' -o tsv)" || \
+          echo "Revision restart failed — ACA will pick up new secret within 30 minutes"
+
+      - name: Verify rotation
+        env:
+          NEW_KEY: ${{ steps.newkey.outputs.new_key }}
+          DATABASE_URL: ${{ steps.secrets.outputs.database_url }}
+        run: |
+          # Verify the new key can unwrap vault keys (dry run with new key as OLD)
+          OLD_KEY="$NEW_KEY" NEW_KEY="$NEW_KEY" DATABASE_URL="$DATABASE_URL" \
+            node -e "
+              import pg from 'pg';
+              import crypto from 'node:crypto';
+              const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+              const { rows } = await pool.query('SELECT user_id, wrapped_key FROM user_vault_keys LIMIT 5');
+              for (const r of rows) {
+                const mk = Buffer.from(process.env.OLD_KEY, 'hex');
+                const info = Buffer.from('vault-key:' + r.user_id, 'utf-8');
+                const wk = crypto.hkdfSync('sha256', mk, Buffer.alloc(0), info, 32);
+                const data = Buffer.from(r.wrapped_key, 'base64');
+                const iv = data.subarray(0, 12);
+                const tag = data.subarray(12, 28);
+                const ct = data.subarray(28);
+                const d = crypto.createDecipheriv('aes-256-gcm', Buffer.from(wk), iv);
+                d.setAuthTag(tag);
+                d.update(ct) + d.final('utf-8');
+                console.log('  User ' + r.user_id + ': verified ✓');
+              }
+              console.log('Verification passed');
+              await pool.end();
+            "

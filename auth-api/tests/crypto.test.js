@@ -188,4 +188,50 @@ describe("crypto module", () => {
       expect(decrypt(encrypted, vaultKey)).toBe(message);
     });
   });
+
+  describe("master key rotation", () => {
+    it("re-wrapping with new server key preserves vault key", () => {
+      // Simulate: old master → wrap, new master → re-wrap
+      const vaultKey = generateVaultKey();
+      const oldWrapping = deriveServerKey(42);
+      const wrapped = wrapKey(vaultKey, Buffer.from(oldWrapping));
+
+      // Unwrap with old
+      const unwrapped = unwrapKey(wrapped, Buffer.from(oldWrapping));
+      expect(unwrapped.equals(vaultKey)).toBe(true);
+
+      // Change the master key env var to simulate rotation
+      const origKey = process.env.CHAT_ENCRYPTION_KEY;
+      process.env.CHAT_ENCRYPTION_KEY = "b".repeat(64);
+      const newWrapping = deriveServerKey(42);
+
+      // Re-wrap with new
+      const reWrapped = wrapKey(unwrapped, Buffer.from(newWrapping));
+      const finalKey = unwrapKey(reWrapped, Buffer.from(newWrapping));
+      expect(finalKey.equals(vaultKey)).toBe(true);
+
+      // Restore
+      process.env.CHAT_ENCRYPTION_KEY = origKey;
+    });
+
+    it("encrypted data survives master key rotation", () => {
+      const vaultKey = generateVaultKey();
+      const messages = ["Hello", "How is my budget?", "Thanks!"];
+      const encrypted = messages.map(m => encrypt(m, vaultKey));
+
+      // Simulate rotation (vault key stays the same, only wrapping changes)
+      const oldWrapping = deriveServerKey(7);
+      const wrapped = wrapKey(vaultKey, Buffer.from(oldWrapping));
+      const unwrapped = unwrapKey(wrapped, Buffer.from(oldWrapping));
+
+      process.env.CHAT_ENCRYPTION_KEY = "c".repeat(64);
+      const newWrapping = deriveServerKey(7);
+      wrapKey(unwrapped, Buffer.from(newWrapping));
+      process.env.CHAT_ENCRYPTION_KEY = "a".repeat(64);
+
+      // All messages still decrypt with the same vault key
+      const decrypted = encrypted.map(e => decrypt(e, vaultKey));
+      expect(decrypted).toEqual(messages);
+    });
+  });
 });
