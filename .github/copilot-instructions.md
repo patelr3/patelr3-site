@@ -8,7 +8,7 @@
 
 | Agent | File | Use For |
 |-------|------|---------|
-| **Production Investigator** | `.github/agents/production-investigator.agent.md` | Diagnosing production incidents, root cause analysis (READ-ONLY) |
+| **Production Investigator & Observability** | `.github/agents/production-investigator.agent.md` | Diagnosing production incidents, root cause analysis (READ-ONLY for RCA); OpenTelemetry, App Insights, structured logging, tracing (CAN make changes) |
 | **Production Deployment** | `.github/agents/production-deployment.agent.md` | CI/CD pipelines, GitHub Actions, Bicep/IaC, Docker, ACR/ACA deployments, Azure infrastructure, nginx routing |
 | **Security & Auth** | `.github/agents/security-auth.agent.md` | OAuth, JWT, RBAC, OIDC IdP, encryption, cookie security, AKV secrets, managed identity, auth middleware |
 | **Frontend UI** | `.github/agents/frontend-ui.agent.md` | React components, pages, styling, Vite config, frontend nginx, API integration, UX |
@@ -19,7 +19,9 @@
    - "Fix the login flow" → **Security & Auth**
    - "Add a new page" → **Frontend UI**
    - "Fix the CI pipeline" → **Production Deployment**
-   - "Why is prod returning 502?" → **Production Investigator**
+   - "Why is prod returning 502?" → **Production Investigator & Observability**
+   - "Add tracing to a service" → **Production Investigator & Observability**
+   - "Update the logger" → **Production Investigator & Observability**
 
 2. **Cross-domain tasks** → Break into subtasks and delegate each part.
    - "Add a new protected endpoint" → **Security & Auth** (auth middleware + backend) + **Frontend UI** (page + API call) + **Production Deployment** (if new service/container needed)
@@ -39,7 +41,7 @@
    - If tests fail, route the failure back to the responsible specialist agent for fixing.
    - Do not push to main until all tests pass and the local stack is verified.
 
-5. **After incident resolution** → Always update the **Production Investigator** agent with new root causes or diagnostic steps discovered.
+5. **After incident resolution** → Always update the **Production Investigator & Observability** agent with new root causes or diagnostic steps discovered.
 
 ## Documentation
 
@@ -145,9 +147,11 @@ Services are stored in the `services` Postgres table. Admin changes to `is_visib
 
 - **[sunniebudget](https://github.com/patelr3/sunniebudget)** — Finance infrastructure: finance-api, per-user Actual Budget ACAs, MCP server, backup workflows.
 
-## Production Incident Response
+## Production Incident Response & Observability
 
-**Always use the `.github/agents/production-investigator.agent.md` custom agent to investigate and root-cause production errors.** Do not attempt ad-hoc debugging — the investigator has the architecture context, playbook, and common root causes needed to diagnose issues efficiently.
+**Always use the `.github/agents/production-investigator.agent.md` agent to investigate and root-cause production errors.** Do not attempt ad-hoc debugging — the investigator has the architecture context, playbook, and common root causes needed to diagnose issues efficiently.
+
+**For observability changes** (adding tracing, updating logging, configuring App Insights), also delegate to this agent — it owns the full OTel/logging/monitoring stack.
 
 After resolving an incident, **always update the production-investigator agent** with:
 - New root causes discovered (add to the common root causes table)
