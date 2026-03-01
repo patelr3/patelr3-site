@@ -108,11 +108,14 @@ curl -s -X POST "${ENDPOINT}/agents/sunnieai/versions?api-version=v1" \
         "type": "mcp",
         "server_label": "actual-budget-mcp",
         "server_url": "https://www.arayosun.com/api/mcp/mcp",
-        "require_approval": "never"
+        "require_approval": "never",
+        "project_connection_id": "<FOUNDRY_MCP_CONNECTION_ID from AKV>"
       }]
     }
   }'
 ```
+
+> ⚠️ **CRITICAL**: The `project_connection_id` field is REQUIRED for OAuth identity passthrough. Without it, Foundry sends NO Authorization header to the MCP server and all tool calls fail with "Missing or invalid Authorization header".
 
 ### Test Agent via Responses API
 ```bash
@@ -207,6 +210,7 @@ curl -s -X POST "${ENDPOINT}/openai/v1/responses" \
 
 | Issue | Cause | Fix |
 |-------|-------|-----|
+| MCP "Missing or invalid Authorization header" | MCP tool missing `project_connection_id` | Add `project_connection_id` pointing to OAuth connection in agent definition |
 | 404 on agent call | Using classic `asst_xxx` ID with new API | Use agent name (`sunnieai`) not ID |
 | `tools` and `agent_reference` conflict | Cannot combine inline tools with agent_reference | Use one or the other, controlled by `FOUNDRY_MCP_CONNECTION_ID` |
 | MCP auth errors | OIDC token validation failing | Check JWKS endpoint is reachable, verify `OIDC_JWKS_URL` |
