@@ -46,6 +46,7 @@ function isValidClientCredentials(clientId, clientSecret) {
 // ── Discovery document ────────────────────────────────────────
 router.get("/.well-known/openid-configuration", async (_req, res) => {
   const iss = issuerUrl();
+  logger.info("OIDC discovery requested", { issuer: iss });
   res.json({
     issuer: iss,
     authorization_endpoint: `${iss}/authorize`,
@@ -78,6 +79,11 @@ router.get("/authorize", async (req, res) => {
     redirect_uri, state, client_id, response_type,
     code_challenge, code_challenge_method, scope,
   } = req.query;
+
+  logger.info("OIDC authorize request", {
+    clientId: client_id, redirectUri: redirect_uri, scope,
+    hasCookie: !!req.cookies?.access_token, responseType: response_type,
+  });
 
   if (response_type !== "code") {
     return res.status(400).json({ error: "unsupported_response_type" });
@@ -242,6 +248,12 @@ router.post("/token", async (req, res) => {
     reqClientSecret = reqClientSecret || secret;
   }
 
+  logger.info("OIDC token request", {
+    grantType: grant_type, clientId: reqClientId,
+    hasCode: !!req.body.code, hasRefreshToken: !!req.body.refresh_token,
+    hasBasicAuth: !!authHeader?.startsWith("Basic "),
+  });
+
   if (grant_type === "authorization_code") {
     return handleAuthorizationCodeGrant(req, res, reqClientId, reqClientSecret);
   }
@@ -256,12 +268,14 @@ async function handleAuthorizationCodeGrant(req, res, reqClientId, reqClientSecr
   const { code, redirect_uri, code_verifier } = req.body;
 
   if (!isValidClientCredentials(reqClientId, reqClientSecret)) {
+    logger.warn("OIDC token: invalid client credentials", { clientId: reqClientId });
     return res.status(401).json({ error: "invalid_client" });
   }
 
   // Consume the authorization code (single-use)
   const authCode = await consumeOidcAuthCode(code);
   if (!authCode) {
+    logger.warn("OIDC token: invalid auth code", { clientId: reqClientId, codePrefix: code?.slice(0, 8) });
     return res.status(400).json({ error: "invalid_grant", error_description: "Invalid or expired authorization code" });
   }
 
@@ -292,6 +306,7 @@ async function handleAuthorizationCodeGrant(req, res, reqClientId, reqClientSecr
     : authCode.google_claims;
 
   const tokenResponse = await issueTokens(authCode.user_id, reqClientId, claims);
+  logger.info("OIDC token issued (auth_code)", { userId: authCode.user_id, clientId: reqClientId });
   res.json(tokenResponse);
 }
 
@@ -299,21 +314,25 @@ async function handleRefreshTokenGrant(req, res, reqClientId, reqClientSecret) {
   const { refresh_token } = req.body;
 
   if (!isValidClientCredentials(reqClientId, reqClientSecret)) {
+    logger.warn("OIDC refresh: invalid client credentials", { clientId: reqClientId });
     return res.status(401).json({ error: "invalid_client" });
   }
 
   if (!refresh_token) {
+    logger.warn("OIDC refresh: missing refresh_token", { clientId: reqClientId });
     return res.status(400).json({ error: "invalid_grant", error_description: "refresh_token is required" });
   }
 
   // Consume refresh token (single-use, rotating)
   const storedToken = await consumeOidcRefreshToken(refresh_token);
   if (!storedToken) {
+    logger.warn("OIDC refresh: invalid or expired refresh token", { clientId: reqClientId, tokenPrefix: refresh_token?.slice(0, 8) });
     return res.status(400).json({ error: "invalid_grant", error_description: "Invalid or expired refresh token" });
   }
 
   // Verify client_id matches the one the refresh token was issued to
   if (storedToken.client_id !== reqClientId) {
+    logger.warn("OIDC refresh: client_id mismatch", { expected: storedToken.client_id, got: reqClientId });
     return res.status(400).json({ error: "invalid_grant", error_description: "client_id mismatch" });
   }
 
@@ -331,7 +350,7 @@ async function handleRefreshTokenGrant(req, res, reqClientId, reqClientSecret) {
     picture: user.avatar_url || "",
   };
 
-  logger.info("OIDC refresh token exchanged", { userId: user.id, clientId: reqClientId });
+  logger.info("OIDC token issued (refresh)", { userId: user.id, clientId: reqClientId });
 
   const tokenResponse = await issueTokens(storedToken.user_id, reqClientId, claims);
   res.json(tokenResponse);
@@ -392,14 +411,18 @@ async function issueTokens(userId, clientId, claims) {
 router.get("/userinfo", async (req, res) => {
   const auth = req.headers.authorization;
   if (!auth?.startsWith("Bearer ")) {
+    logger.warn("OIDC userinfo: missing bearer token");
     return res.status(401).json({ error: "invalid_token" });
   }
 
   const token = auth.slice(7);
   const data = await getOidcAccessToken(token);
   if (!data) {
+    logger.warn("OIDC userinfo: token not found in store");
     return res.status(401).json({ error: "invalid_token" });
   }
+
+  logger.info("OIDC userinfo served", { userId: data.user_id });
 
   const claims = typeof data.claims === "string" ? JSON.parse(data.claims) : data.claims;
 

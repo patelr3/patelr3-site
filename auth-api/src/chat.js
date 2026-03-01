@@ -431,6 +431,26 @@ router.post("/threads/:threadId/messages", async (req, res) => {
               });
             }
 
+            // Log MCP call results (including auth errors)
+            if (event.type === "response.mcp_call.completed" && event.item) {
+              const output = event.item.output || "";
+              const truncated = typeof output === "string" ? output.substring(0, 500) : JSON.stringify(output).substring(0, 500);
+              logger.info("MCP call completed", {
+                label,
+                mcpCallName: event.item.name || "?",
+                mcpOutput: truncated,
+              });
+            }
+            if (event.type === "response.output_item.done" && event.item?.type === "mcp_call") {
+              const output = event.item.output || "";
+              const truncated = typeof output === "string" ? output.substring(0, 500) : JSON.stringify(output).substring(0, 500);
+              logger.info("MCP call result", {
+                label,
+                mcpCallName: event.item.name || "?",
+                mcpOutput: truncated,
+              });
+            }
+
             // Log non-delta events
             if (event.type && !event.type.includes("delta")) {
               logger.info("SSE event", { label, eventType: event.type });
@@ -476,6 +496,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
       // Chain to previous Foundry response for OAuth state persistence
       const prevResponseId = await getThreadLastResponseId(threadId);
+      logger.info("Chat request", { threadId, hasPreviousResponse: !!prevResponseId, prevResponseId: prevResponseId || "none" });
 
       for (attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         const label = attempt === 0 ? "main" : `retry#${attempt}`;

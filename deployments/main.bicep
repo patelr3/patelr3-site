@@ -214,10 +214,12 @@ module mcpServer 'modules/container-app.bicep' = {
       { name: 'FINANCE_API_URL', value: 'https://finance-api.${financeCaeDomain}' }
       { name: 'FINANCE_API_KEY', secretRef: 'finance-api-key' }
       { name: 'OIDC_JWKS_URL', value: 'https://www.arayosun.com/api/auth/oidc/jwks' }
+      { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
     ]
     secrets: [
       { name: 'jwt-secret', keyVaultUrl: '${kvSecretsUrl}/jwt-secret', identity: kvReaderIdentity.id }
       { name: 'finance-api-key', keyVaultUrl: '${kvSecretsUrl}/finance-api-key', identity: kvReaderIdentity.id }
+      { name: 'appinsights-connection-string', keyVaultUrl: '${kvSecretsUrl}/appinsights-connection-string', identity: kvReaderIdentity.id }
     ]
   }
 }
