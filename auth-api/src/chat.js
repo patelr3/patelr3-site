@@ -263,13 +263,19 @@ async function maybeSummarize(threadId, vaultKey = null) {
 
 // ── Send message and run agent (streaming) ─────────────────────
 router.post("/threads/:threadId/messages", async (req, res) => {
-  // Extract OTel traceId for error correlation
-  const span = trace.getSpan(context.active());
-  const correlationId = span?.spanContext()?.traceId || randomUUID();
+  // Ensure an OTel span is available for trace correlation
+  const rootSpan = trace.getSpan(context.active()) || tracer.startSpan("chat.sendMessage");
+  const correlationId = rootSpan.spanContext().traceId;
   res.setHeader("X-Trace-ID", correlationId);
 
   const threadId = Number(req.params.threadId);
   const userId = Number(req.jwtUser.sub);
+
+  // Add user attributes for App Insights filtering
+  rootSpan.setAttributes({
+    "enduser.id": String(userId),
+    "enduser.name": req.jwtUser.name || "",
+  });
 
   // Ownership check: ensure the thread belongs to the requesting user (before any other processing)
   try {
@@ -539,6 +545,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
             res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
           }
           agentSpan.setStatus({ code: SpanStatusCode.ERROR, message: `HTTP ${runRes.status}` });
+          rootSpan.recordException(new Error(`Foundry response creation failed: HTTP ${runRes.status}`));
           break;
         }
 
@@ -566,6 +573,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
           res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
           agentSpan.setStatus({ code: SpanStatusCode.ERROR, message: "max_retries_exceeded" });
+          rootSpan.recordException(new Error("Foundry response failed after max retries"));
           break;
         }
 
@@ -582,6 +590,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
           res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
           agentSpan.setStatus({ code: SpanStatusCode.ERROR, message: "stream_timeout" });
+          rootSpan.recordException(new Error("Stream ended without completion event (timeout)"));
           break;
         }
 
@@ -615,6 +624,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           });
           if (!contRes.ok) {
             logger.error("Continuation HTTP failed", { round: continuationRound, status: contRes.status });
+            rootSpan.recordException(new Error(`Continuation HTTP failed: round ${continuationRound}, status ${contRes.status}`));
             const errMsg = "\n\n⚠️ I encountered an error while completing my analysis. Please try again.";
             assistantText += errMsg;
             res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
@@ -629,6 +639,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
           if (!contResult.status) {
             logger.error("Continuation stream timeout", { round: continuationRound });
+            rootSpan.recordException(new Error(`Continuation stream timeout: round ${continuationRound}`));
             const errMsg = "\n\n⚠️ The request timed out while completing the analysis. Please try again.";
             assistantText += errMsg;
             res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
@@ -637,6 +648,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           }
           if (contResult.status === "failed") {
             logger.error("Continuation response failed", { round: continuationRound });
+            rootSpan.recordException(new Error(`Continuation response failed: round ${continuationRound}`));
             const errMsg = "\n\n⚠️ I had trouble completing that request. Could you try rephrasing or breaking it into smaller questions?";
             assistantText += errMsg;
             res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
@@ -647,6 +659,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
         if (continuationRound >= MAX_CONTINUATIONS) {
           logger.warn("Max continuations reached", { round: continuationRound, max: MAX_CONTINUATIONS });
+          rootSpan.recordException(new Error(`Max continuations reached: ${continuationRound}/${MAX_CONTINUATIONS}`));
           const errMsg = "\n\n⚠️ This request required too many steps. Please try breaking it into smaller questions.";
           assistantText += errMsg;
           res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
@@ -661,6 +674,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
       });
     } catch (streamErr) {
       logger.error("Stream error", { error: streamErr.message });
+      rootSpan.recordException(streamErr);
       try {
         const errMsg = "\n\n⚠️ I encountered an unexpected error. Please try again.";
         assistantText += errMsg;
@@ -682,6 +696,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     }
   } catch (err) {
     logger.error("Message/run error", { error: err.message });
+    rootSpan.recordException(err);
     if (!res.headersSent) {
       res.status(500).json({ error: "Failed to process message", correlationId });
     }
