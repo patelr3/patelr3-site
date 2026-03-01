@@ -595,8 +595,8 @@ nav a { text-decoration: none; }
 .page.sunnieai {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 60px - 2rem);
-  min-height: 350px;
+  height: calc(100dvh - 60px - 10rem);
+  min-height: 300px;
   overflow: hidden;
 }
 .sunnieai h1 { margin-bottom: 0.25rem; }
@@ -921,7 +921,7 @@ nav a { text-decoration: none; }
 
 @media (max-width: 600px) {
   .page.sunnieai {
-    height: calc(100dvh - 60px - 1rem);
+    height: calc(100dvh - 60px - 8rem);
   }
   .sunnieai-layout {
     flex-direction: column;

@@ -10,10 +10,14 @@ export default function SunnieAI() {
   const [consentLink, setConsentLink] = useState(null);
   const [pendingRetry, setPendingRetry] = useState(null);
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const textareaRef = useRef(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [messages]);
 
   async function ensureConversation() {
@@ -188,7 +192,7 @@ export default function SunnieAI() {
       </div>
 
       <div className="sunnieai-chat">
-        <div className="sunnieai-messages">
+        <div className="sunnieai-messages" ref={messagesContainerRef}>
           {messages.length === 0 && (
             <div className="sunnieai-empty">
               <p>👋 Hi! I&apos;m SunnieAI.</p>
@@ -211,7 +215,6 @@ export default function SunnieAI() {
               SunnieAI is thinking...
             </div>
           )}
-          <div ref={messagesEndRef} />
         </div>
 
         {consentLink && (
