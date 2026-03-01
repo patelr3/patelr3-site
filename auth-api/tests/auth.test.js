@@ -42,6 +42,8 @@ const mockDb = {
   getChatMessageCount: jest.fn(),
   updateThreadSummary: jest.fn(),
   getThreadSummary: jest.fn(),
+  getThreadLastResponseId: jest.fn().mockResolvedValue(null),
+  updateThreadLastResponseId: jest.fn().mockResolvedValue(),
   storeVaultKey: jest.fn(),
   getWrappedVaultKey: jest.fn(),
 };

@@ -268,14 +268,14 @@ export default function SunnieAI({ user }) {
                 correlationId = event.correlationId || null;
                 continue;
               }
-              // Handle OAuth consent request — show authorization link
+              // Handle OAuth consent request — open popup and auto-retry
               if (event.type === "oauth_consent" && event.url) {
                 const consentMsg =
-                  "🔐 To access your budget data, please authorize SunnieAI:\n\n" +
-                  `[Authorize SunnieAI](${event.url})\n\n` +
-                  "After authorizing, send your message again.";
+                  "🔐 Authorizing SunnieAI to access your budget data…\n\n" +
+                  "A sign-in window should have opened. If not, [click here to authorize](" + event.url + ").\n\n" +
+                  "After authorizing, your request will be retried automatically.";
                 assistantText = consentMsg;
-                setAgentStatus(null);
+                setAgentStatus("Waiting for authorization…");
                 setMessages((prev) => {
                   const updated = [...prev];
                   updated[updated.length - 1] = {
@@ -284,6 +284,93 @@ export default function SunnieAI({ user }) {
                   };
                   return updated;
                 });
+                // Open consent URL in popup and queue auto-retry when it closes
+                try {
+                  const popup = window.open(event.url, "sunnieai_oauth", "width=600,height=700");
+                  if (popup) {
+                    const pollTimer = setInterval(() => {
+                      if (popup.closed) {
+                        clearInterval(pollTimer);
+                        // Auto-retry: re-send the same message after consent completes
+                        setMessages((prev) => {
+                          const updated = [...prev];
+                          updated[updated.length - 1] = {
+                            role: "assistant",
+                            content: "✅ Authorization complete! Retrying your request…",
+                          };
+                          return updated;
+                        });
+                        // Schedule retry after current stream finishes
+                        setTimeout(() => {
+                          setInput(userMsg);
+                          // Use a ref-like approach: set input and trigger send
+                          const retryFn = async () => {
+                            setInput("");
+                            setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
+                            setStreaming(true);
+                            setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+                            setAgentStatus("Retrying…");
+                            try {
+                              const retryRes = await fetch(`/api/auth/chat/threads/${threadId}/messages`, {
+                                method: "POST",
+                                credentials: "include",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ content: userMsg, mcpServers: enabledServers }),
+                              });
+                              if (!retryRes.ok) {
+                                const err = await retryRes.json();
+                                setMessages((prev) => {
+                                  const updated = [...prev];
+                                  updated[updated.length - 1] = { role: "assistant", content: `Error: ${err.error || "Retry failed"}` };
+                                  return updated;
+                                });
+                                setStreaming(false);
+                                setAgentStatus(null);
+                                return;
+                              }
+                              // Stream the retry response
+                              const retryReader = retryRes.body.getReader();
+                              const retryDecoder = new TextDecoder();
+                              let retryBuffer = "";
+                              let retryText = "";
+                              while (true) {
+                                const { done: rDone, value: rValue } = await retryReader.read();
+                                if (rDone) break;
+                                retryBuffer += retryDecoder.decode(rValue, { stream: true });
+                                const retryLines = retryBuffer.split("\n");
+                                retryBuffer = retryLines.pop() || "";
+                                for (const rl of retryLines) {
+                                  if (!rl.startsWith("data: ")) continue;
+                                  const rd = rl.slice(6);
+                                  if (rd === "[DONE]") continue;
+                                  try {
+                                    const re = JSON.parse(rd);
+                                    if (re.type === "response.output_text.delta" && re.delta) {
+                                      retryText += re.delta;
+                                      setMessages((prev) => {
+                                        const updated = [...prev];
+                                        updated[updated.length - 1] = { role: "assistant", content: retryText };
+                                        return updated;
+                                      });
+                                    }
+                                    if (re.type?.includes("mcp_call") && !re.type.includes("completed")) {
+                                      setAgentStatus("Looking up data…");
+                                    } else if (re.type?.includes("mcp_call")) {
+                                      setAgentStatus("Thinking…");
+                                    }
+                                  } catch { /* skip */ }
+                                }
+                              }
+                            } catch { /* retry failed silently */ }
+                            setStreaming(false);
+                            setAgentStatus(null);
+                          };
+                          retryFn();
+                        }, 500);
+                      }
+                    }, 1000);
+                  }
+                } catch { /* popup blocked — user can click the link manually */ }
                 continue;
               }
               // Fallback: handle raw Foundry oauth consent events
@@ -291,11 +378,11 @@ export default function SunnieAI({ user }) {
                 const oauthUrl = event.consent_link || event.authorization_url || event.url || "";
                 if (oauthUrl) {
                   const consentMsg =
-                    "🔐 To access your budget data, please authorize SunnieAI:\n\n" +
-                    `[Authorize SunnieAI](${oauthUrl})\n\n` +
-                    "After authorizing, send your message again.";
+                    "🔐 Authorizing SunnieAI to access your budget data…\n\n" +
+                    "A sign-in window should have opened. If not, [click here to authorize](" + oauthUrl + ").\n\n" +
+                    "After authorizing, your request will be retried automatically.";
                   assistantText = consentMsg;
-                  setAgentStatus(null);
+                  setAgentStatus("Waiting for authorization…");
                   setMessages((prev) => {
                     const updated = [...prev];
                     updated[updated.length - 1] = {
@@ -304,6 +391,9 @@ export default function SunnieAI({ user }) {
                     };
                     return updated;
                   });
+                  try {
+                    window.open(oauthUrl, "sunnieai_oauth", "width=600,height=700");
+                  } catch { /* popup blocked */ }
                   continue;
                 }
               }

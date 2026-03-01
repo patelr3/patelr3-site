@@ -175,6 +175,11 @@ export async function initDb() {
     ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS summary TEXT DEFAULT NULL
   `);
 
+  // Add last_response_id column for Foundry response chaining (OAuth state persistence)
+  await pool.query(`
+    ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS last_response_id TEXT DEFAULT NULL
+  `);
+
   // Per-user vault keys for chat encryption (Bitwarden-inspired)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_vault_keys (
@@ -603,6 +608,21 @@ export async function getThreadSummary(threadId, vaultKey = null) {
     return decrypt(raw, vaultKey);
   }
   return raw;
+}
+
+export async function getThreadLastResponseId(threadId) {
+  const { rows } = await pool.query(
+    `SELECT last_response_id FROM chat_threads WHERE id = $1`,
+    [threadId]
+  );
+  return rows[0]?.last_response_id || null;
+}
+
+export async function updateThreadLastResponseId(threadId, responseId) {
+  await pool.query(
+    `UPDATE chat_threads SET last_response_id = $1, updated_at = NOW() WHERE id = $2`,
+    [responseId, threadId]
+  );
 }
 
 export default pool;

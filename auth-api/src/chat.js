@@ -12,6 +12,7 @@ import {
   addChatMessage, getChatMessages, getChatMessageCount,
   updateThreadSummary, getThreadSummary,
   getWrappedVaultKey,
+  getThreadLastResponseId, updateThreadLastResponseId,
 } from "./db.js";
 import { deriveServerKey, unwrapKey } from "./crypto.js";
 
@@ -289,7 +290,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
       return {
         input: inputData,
         stream: true,
-        store: false,
+        store: true,
         max_output_tokens: 16384,
         agent_reference: {
           name: FOUNDRY_AGENT_NAME,
@@ -473,9 +474,13 @@ router.post("/threads/:threadId/messages", async (req, res) => {
       let currentInput = input;
       let attempt = 0;
 
+      // Chain to previous Foundry response for OAuth state persistence
+      const prevResponseId = await getThreadLastResponseId(threadId);
+
       for (attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         const label = attempt === 0 ? "main" : `retry#${attempt}`;
-        const body = buildResponseBody(currentInput);
+        const extraOpts = prevResponseId ? { previous_response_id: prevResponseId } : {};
+        const body = buildResponseBody(currentInput, extraOpts);
 
         const runRes = await foundryFetch("/responses", {
           method: "POST",
@@ -508,6 +513,12 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         // OAuth consent requested — not a failure, user needs to authorize
         if (result.oauthConsentUrl) {
           logger.info("OAuth consent flow — stopping retries", { attempt: attempt + 1 });
+          // Save response ID so the next message chains to this consent response
+          if (result.responseId) {
+            updateThreadLastResponseId(threadId, result.responseId).catch(err =>
+              logger.error("Failed to save last_response_id after consent", { error: err.message }),
+            );
+          }
           break;
         }
 
@@ -614,6 +625,12 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         }
 
         agentSpan.setAttributes({ attempt: attempt + 1, continuations: continuationRound });
+        // Persist last response ID for OAuth state chaining across messages
+        if (responseId) {
+          updateThreadLastResponseId(threadId, responseId).catch(err =>
+            logger.error("Failed to save last_response_id", { error: err.message }),
+          );
+        }
         // If we reached here without failure, we're done
         if (result.status !== "failed") break;
       }
