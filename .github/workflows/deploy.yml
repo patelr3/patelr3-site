@@ -188,232 +188,45 @@ jobs:
       - name: Post-deploy integration tests
         run: |
           FRONTEND_URL="https://www.arayosun.com"
-          CI_EMAIL="citestuser@localhost.dev"
-          CI_PASS="CiTestPass2026!"
-          COOKIE_JAR="/tmp/ci-cookies-$$"
           PASS=0
           FAIL=0
 
           pass() { PASS=$((PASS + 1)); echo "  ✓ $1"; }
           fail() { FAIL=$((FAIL + 1)); echo "  ✗ $1: $2"; }
 
-          # ── Register or login CI test user ─────────────────────
           echo "=== CI Integration Tests ==="
           echo ""
-          echo "Authentication:"
-          REG_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$FRONTEND_URL/api/auth/register" \
-            -H "Content-Type: application/json" \
-            -d "{\"email\":\"$CI_EMAIL\",\"password\":\"$CI_PASS\",\"displayName\":\"CI Test User\"}" \
-            -c "$COOKIE_JAR")
+          echo "Unauthenticated Endpoints:"
 
-          if [ "$REG_STATUS" = "201" ]; then
-            pass "Register CI user (201)"
-          elif [ "$REG_STATUS" = "409" ]; then
-            LOGIN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$FRONTEND_URL/api/auth/login" \
-              -H "Content-Type: application/json" \
-              -d "{\"email\":\"$CI_EMAIL\",\"password\":\"$CI_PASS\"}" \
-              -c "$COOKIE_JAR")
-            if [ "$LOGIN_STATUS" = "200" ]; then
-              pass "Login CI user (already registered)"
-            else
-              fail "Login CI user" "expected 200, got $LOGIN_STATUS"
-            fi
-          else
-            fail "Register CI user" "expected 201 or 409, got $REG_STATUS"
-          fi
+          # Frontend serves HTML
+          FE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$FRONTEND_URL")
+          if [ "$FE_STATUS" = "200" ]; then pass "Frontend serves HTML (200)"; else fail "Frontend" "expected 200, got $FE_STATUS"; fi
 
-          # ── Authenticated endpoint tests ───────────────────────
+          # /auth/me returns 401 unauthenticated
+          ME_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$FRONTEND_URL/api/auth/me")
+          if [ "$ME_STATUS" = "401" ]; then pass "GET /auth/me returns 401"; else fail "GET /auth/me" "expected 401, got $ME_STATUS"; fi
+
+          # /auth/services returns 401 unauthenticated
+          SVC_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$FRONTEND_URL/api/auth/services")
+          if [ "$SVC_STATUS" = "401" ]; then pass "GET /auth/services returns 401"; else fail "GET /auth/services" "expected 401, got $SVC_STATUS"; fi
+
+          # hello-world returns 401 unauthenticated
+          HW_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$FRONTEND_URL/api/hello/")
+          if [ "$HW_STATUS" = "401" ]; then pass "GET /api/hello/ returns 401"; else fail "GET /api/hello/" "expected 401, got $HW_STATUS"; fi
+
           echo ""
-          echo "Authenticated Routes:"
+          echo "OIDC Provider:"
+          OIDC_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$FRONTEND_URL/api/auth/oidc/.well-known/openid-configuration")
+          if [ "$OIDC_STATUS" = "200" ]; then pass "OIDC discovery returns 200"; else fail "OIDC discovery" "expected 200, got $OIDC_STATUS"; fi
 
-          # /auth/me should return authenticated
-          ME_BODY=$(curl -s -b "$COOKIE_JAR" "$FRONTEND_URL/api/auth/me")
-          ME_AUTH=$(echo "$ME_BODY" | grep -o '"authenticated":true' || echo "")
-          if [ -n "$ME_AUTH" ]; then
-            pass "GET /auth/me returns authenticated"
-          else
-            fail "GET /auth/me" "not authenticated: $ME_BODY"
-          fi
+          JWKS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$FRONTEND_URL/api/auth/oidc/jwks")
+          if [ "$JWKS_STATUS" = "200" ]; then pass "OIDC JWKS returns 200"; else fail "OIDC JWKS" "expected 200, got $JWKS_STATUS"; fi
 
-          # /auth/services should return 200
-          SVC_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE_JAR" "$FRONTEND_URL/api/auth/services")
-          if [ "$SVC_STATUS" = "200" ]; then pass "GET /auth/services (200)"; else fail "GET /auth/services" "expected 200, got $SVC_STATUS"; fi
-
-          # hello-world should return service name
-          HW_BODY=$(curl -s -b "$COOKIE_JAR" "$FRONTEND_URL/api/hello/")
-          HW_SVC=$(echo "$HW_BODY" | grep -o '"service":"hello-world"' || echo "")
-          if [ -n "$HW_SVC" ]; then pass "GET /api/hello/ returns service name"; else fail "GET /api/hello/" "unexpected: $HW_BODY"; fi
-
-          # ── MCP Server direct test (validates finance-api key) ───
           echo ""
           echo "MCP Server:"
-
-          # Extract JWT from cookie jar for MCP Authorization header
-          JWT=$(grep "access_token" "$COOKIE_JAR" | awk '{print $NF}')
           MCP_URL="https://patelr3-mcp-server.gentlebay-ad6f417d.westus2.azurecontainerapps.io"
-          FINANCE_API_URL="https://finance-api.icytree-0e39e2f3.westus2.azurecontainerapps.io"
-          FINANCE_API_KEY="${{ steps.secrets.outputs.finance_api_key }}"
-
-          # tools/list should return tools
-          MCP_LIST=$(curl -s -X POST "$MCP_URL/mcp" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $JWT" \
-            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}')
-          TOOL_COUNT=$(echo "$MCP_LIST" | grep -o '"name"' | wc -l)
-          if [ "$TOOL_COUNT" -gt 10 ]; then
-            pass "MCP tools/list returns $TOOL_COUNT tools"
-          else
-            fail "MCP tools/list" "expected >10 tools, got: $MCP_LIST"
-          fi
-
-          # ── E2E MCP test with real AB instance ───────────────────
-          echo ""
-          echo "E2E MCP + ActualBudget:"
-
-          # Get citestuser's userId from JWT sub claim
-          CI_USER_ID=$(echo "$JWT" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | grep -o '"sub":"[^"]*"' | cut -d'"' -f4)
-          echo "  citestuser userId: $CI_USER_ID"
-
-          # Check if citestuser already has an AB instance
-          DEP_STATUS=$(curl -s -H "X-Api-Key: $FINANCE_API_KEY" "$FINANCE_API_URL/deployments/$CI_USER_ID")
-          DEP_STATE=$(echo "$DEP_STATUS" | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
-
-          if [ "$DEP_STATE" != "running" ] && [ "$DEP_STATE" != "provisioning" ]; then
-            echo "  Provisioning AB instance for citestuser..."
-            PROV_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$FINANCE_API_URL/deployments/$CI_USER_ID" \
-              -H "Content-Type: application/json" \
-              -H "X-Api-Key: $FINANCE_API_KEY" \
-              -d '{"username":"citestuser"}')
-            echo "  Provision response: $PROV_STATUS"
-          else
-            echo "  AB instance already exists (status: $DEP_STATE)"
-          fi
-
-          # Wait for AB instance to be running (max 5 min)
-          echo "  Waiting for AB instance to be ready..."
-          AB_RETRIES=0
-          AB_MAX=30
-          AB_FQDN=""
-          while [ $AB_RETRIES -lt $AB_MAX ]; do
-            DEP_STATUS=$(curl -s -H "X-Api-Key: $FINANCE_API_KEY" "$FINANCE_API_URL/deployments/$CI_USER_ID")
-            DEP_STATE=$(echo "$DEP_STATUS" | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
-            AB_FQDN=$(echo "$DEP_STATUS" | grep -o '"fqdn":"[^"]*"' | head -1 | cut -d'"' -f4)
-            if [ "$DEP_STATE" = "running" ] && [ -n "$AB_FQDN" ]; then
-              break
-            fi
-            AB_RETRIES=$((AB_RETRIES + 1))
-            sleep 10
-          done
-
-          if [ "$DEP_STATE" = "running" ] && [ -n "$AB_FQDN" ]; then
-            pass "AB instance running ($AB_FQDN)"
-          else
-            fail "AB instance" "not running after ${AB_MAX}0s (status: $DEP_STATE)"
-          fi
-
-          # Wait for service token to be injected (max 3 min)
-          if [ "$DEP_STATE" = "running" ]; then
-            echo "  Waiting for service token injection..."
-            TK_RETRIES=0
-            TK_MAX=18
-            AB_TOKEN=""
-            while [ $TK_RETRIES -lt $TK_MAX ]; do
-              TK_RESP=$(curl -s -H "X-Api-Key: $FINANCE_API_KEY" "$FINANCE_API_URL/deployments/$CI_USER_ID/token")
-              AB_TOKEN=$(echo "$TK_RESP" | grep -o '"token":"[^"]*"' | head -1 | cut -d'"' -f4)
-              if [ -n "$AB_TOKEN" ]; then
-                break
-              fi
-              TK_RETRIES=$((TK_RETRIES + 1))
-              sleep 10
-            done
-
-            if [ -n "$AB_TOKEN" ]; then
-              pass "Service token available"
-            else
-              fail "Service token" "not available after ${TK_MAX}0s: $TK_RESP"
-            fi
-
-            # Test AB /sync/list-user-files directly with service token
-            if [ -n "$AB_TOKEN" ]; then
-              AB_FILES=$(curl -s -H "X-ACTUAL-TOKEN: $AB_TOKEN" "$AB_FQDN/sync/list-user-files")
-              if echo "$AB_FILES" | grep -q '"status":"ok"'; then
-                pass "AB /sync/list-user-files returns ok"
-              else
-                fail "AB /sync/list-user-files" "expected status ok: $AB_FILES"
-              fi
-            fi
-
-            # Test MCP list_budgets E2E (uses citestuser's JWT → MCP → finance-api → AB)
-            MCP_CALL=$(curl -s -X POST "$MCP_URL/mcp" \
-              -H "Content-Type: application/json" \
-              -H "Authorization: Bearer $JWT" \
-              -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_budgets","arguments":{}}}')
-            if echo "$MCP_CALL" | grep -q '"isError":true'; then
-              fail "MCP list_budgets E2E" "tool error: $MCP_CALL"
-            elif echo "$MCP_CALL" | grep -q "401"; then
-              fail "MCP list_budgets E2E" "finance-api key mismatch (401): $MCP_CALL"
-            elif echo "$MCP_CALL" | grep -q '"content"'; then
-              pass "MCP list_budgets E2E (full chain works)"
-            else
-              fail "MCP list_budgets E2E" "unexpected response: $MCP_CALL"
-            fi
-          fi
-
-          # ── SunnieAI chat health ───────────────────────────────
-          echo ""
-          echo "SunnieAI:"
-          CHAT_BODY=$(curl -s -b "$COOKIE_JAR" "$FRONTEND_URL/api/auth/chat/health")
-          echo "    Health: $CHAT_BODY"
-          CHAT_CONFIGURED=$(echo "$CHAT_BODY" | grep -o '"configured":true' || echo "")
-          if [ -n "$CHAT_CONFIGURED" ]; then
-            pass "GET /auth/chat/health returns configured:true"
-          else
-            fail "GET /auth/chat/health" "expected configured:true, got: $CHAT_BODY"
-          fi
-
-          CHAT_EP=$(echo "$CHAT_BODY" | grep -o '"endpoint":"set"' || echo "")
-          if [ -n "$CHAT_EP" ]; then pass "Foundry endpoint is set"; else fail "Foundry endpoint" "missing"; fi
-
-          CHAT_AGENT=$(echo "$CHAT_BODY" | grep -o '"agentName":"[^"]*"' | grep -v '"agentName":"missing"' || echo "")
-          if [ -n "$CHAT_AGENT" ]; then pass "Foundry agent name is set"; else fail "Foundry agent name" "missing"; fi
-
-          # Create a thread and send a message
-          THREAD_BODY=$(curl -s -X POST "$FRONTEND_URL/api/auth/chat/threads" \
-            -H "Content-Type: application/json" \
-            -d '{"title":"CI test thread"}' \
-            -b "$COOKIE_JAR")
-          THREAD_ID=$(echo "$THREAD_BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
-          if [ -n "$THREAD_ID" ]; then
-            pass "POST /auth/chat/threads creates thread ($THREAD_ID)"
-          else
-            fail "POST /auth/chat/threads" "no thread ID: $THREAD_BODY"
-          fi
-
-          if [ -n "$THREAD_ID" ]; then
-            MSG_BODY=$(curl -s --max-time 120 \
-              -X POST "$FRONTEND_URL/api/auth/chat/threads/$THREAD_ID/messages" \
-              -H "Content-Type: application/json" \
-              -d '{"content":"Hello"}' \
-              -b "$COOKIE_JAR" -w "\n__HTTP_STATUS__%{http_code}")
-            MSG_STATUS=$(echo "$MSG_BODY" | grep '__HTTP_STATUS__' | sed 's/__HTTP_STATUS__//')
-            MSG_STREAM=$(echo "$MSG_BODY" | grep -v '__HTTP_STATUS__')
-            if [ "$MSG_STATUS" != "200" ]; then
-              echo "    MSG_BODY: $(echo "$MSG_STREAM" | head -c 500)"
-              fail "POST message" "expected 200, got $MSG_STATUS"
-            elif echo "$MSG_STREAM" | grep -q '"thread.run.failed"'; then
-              FAIL_MSG=$(echo "$MSG_STREAM" | grep 'thread.run.failed' | head -1)
-              fail "POST message stream" "run failed: $FAIL_MSG"
-            else
-              pass "POST message returns 200 (streaming, no failures)"
-            fi
-
-            # Clean up test thread
-            curl -s -o /dev/null -X DELETE "$FRONTEND_URL/api/auth/chat/threads/$THREAD_ID" -b "$COOKIE_JAR" || true
-          fi
-
-          # ── Cleanup ────────────────────────────────────────────
-          curl -s -o /dev/null -b "$COOKIE_JAR" "$FRONTEND_URL/api/auth/logout" || true
-          rm -f "$COOKIE_JAR"
+          MCP_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" "$MCP_URL/health" 2>/dev/null || echo "skip")
+          if [ "$MCP_HEALTH" = "200" ]; then pass "MCP health returns 200"; else fail "MCP health" "expected 200, got $MCP_HEALTH"; fi
 
           echo ""
           echo "=== CI Integration Results: $PASS passed, $FAIL failed ==="

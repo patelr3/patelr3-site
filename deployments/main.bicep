@@ -109,6 +109,7 @@ module authApi 'modules/container-app.bicep' = {
     enableSystemIdentity: true
     userAssignedIdentityId: kvReaderIdentity.id
     env: [
+      { name: 'FIREBASE_PROJECT_ID', secretRef: 'firebase-project-id' }
       { name: 'GOOGLE_CLIENT_ID', secretRef: 'google-client-id' }
       { name: 'GOOGLE_CLIENT_SECRET', secretRef: 'google-client-secret' }
       { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
@@ -117,30 +118,18 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'AUTH_API_URL', value: 'https://${projectName}-auth-api.${cae.outputs.defaultDomain}' }
       { name: 'FINANCE_API_URL', value: 'https://finance-api.${financeCaeDomain}' }
       { name: 'FINANCE_API_KEY', secretRef: 'finance-api-key' }
-      { name: 'FOUNDRY_PROJECT_ENDPOINT', secretRef: 'foundry-project-endpoint' }
-      { name: 'FOUNDRY_AGENT_NAME', secretRef: 'foundry-agent-name' }
-      { name: 'FOUNDRY_AGENT_ID', secretRef: 'foundry-agent-id' }
-      { name: 'MCP_SERVER_URL', value: 'https://${projectName}-mcp-server.${cae.outputs.defaultDomain}' }
       { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
-      { name: 'CHAT_ENCRYPTION_KEY', secretRef: 'chat-encryption-key' }
-      { name: 'OIDC_FOUNDRY_CLIENT_SECRET', secretRef: 'oidc-foundry-client-secret' }
       { name: 'OIDC_SIGNING_KEY_JWK', secretRef: 'oidc-signing-key-jwk' }
-      { name: 'FOUNDRY_MCP_CONNECTION_ID', secretRef: 'foundry-mcp-connection-id' }
     ]
     secrets: [
+      { name: 'firebase-project-id', keyVaultUrl: '${kvSecretsUrl}/firebase-project-id', identity: kvReaderIdentity.id }
       { name: 'google-client-id', keyVaultUrl: '${kvSecretsUrl}/google-client-id', identity: kvReaderIdentity.id }
       { name: 'google-client-secret', keyVaultUrl: '${kvSecretsUrl}/google-client-secret', identity: kvReaderIdentity.id }
       { name: 'jwt-secret', keyVaultUrl: '${kvSecretsUrl}/jwt-secret', identity: kvReaderIdentity.id }
       { name: 'database-url', keyVaultUrl: '${kvSecretsUrl}/database-url', identity: kvReaderIdentity.id }
       { name: 'finance-api-key', keyVaultUrl: '${kvSecretsUrl}/finance-api-key', identity: kvReaderIdentity.id }
-      { name: 'foundry-project-endpoint', keyVaultUrl: '${kvSecretsUrl}/foundry-project-endpoint', identity: kvReaderIdentity.id }
-      { name: 'foundry-agent-name', keyVaultUrl: '${kvSecretsUrl}/foundry-agent-name', identity: kvReaderIdentity.id }
-      { name: 'foundry-agent-id', keyVaultUrl: '${kvSecretsUrl}/foundry-agent-id', identity: kvReaderIdentity.id }
       { name: 'appinsights-connection-string', keyVaultUrl: '${kvSecretsUrl}/appinsights-connection-string', identity: kvReaderIdentity.id }
-      { name: 'chat-encryption-key', keyVaultUrl: '${kvSecretsUrl}/chat-encryption-key', identity: kvReaderIdentity.id }
-      { name: 'oidc-foundry-client-secret', keyVaultUrl: '${kvSecretsUrl}/oidc-foundry-client-secret', identity: kvReaderIdentity.id }
       { name: 'oidc-signing-key-jwk', keyVaultUrl: '${kvSecretsUrl}/oidc-signing-key-jwk', identity: kvReaderIdentity.id }
-      { name: 'foundry-mcp-connection-id', keyVaultUrl: '${kvSecretsUrl}/foundry-mcp-connection-id', identity: kvReaderIdentity.id }
     ]
   }
 }
@@ -161,11 +150,11 @@ module helloWorld 'modules/container-app.bicep' = {
     external: true
     userAssignedIdentityId: kvReaderIdentity.id
     env: [
-      { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
+      { name: 'FIREBASE_PROJECT_ID', secretRef: 'firebase-project-id' }
       { name: 'FRONTEND_URL', value: frontendUrl }
     ]
     secrets: [
-      { name: 'jwt-secret', keyVaultUrl: '${kvSecretsUrl}/jwt-secret', identity: kvReaderIdentity.id }
+      { name: 'firebase-project-id', keyVaultUrl: '${kvSecretsUrl}/firebase-project-id', identity: kvReaderIdentity.id }
     ]
   }
 }
@@ -186,11 +175,11 @@ module helloWorldRestricted 'modules/container-app.bicep' = {
     external: true
     userAssignedIdentityId: kvReaderIdentity.id
     env: [
-      { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
+      { name: 'FIREBASE_PROJECT_ID', secretRef: 'firebase-project-id' }
       { name: 'FRONTEND_URL', value: frontendUrl }
     ]
     secrets: [
-      { name: 'jwt-secret', keyVaultUrl: '${kvSecretsUrl}/jwt-secret', identity: kvReaderIdentity.id }
+      { name: 'firebase-project-id', keyVaultUrl: '${kvSecretsUrl}/firebase-project-id', identity: kvReaderIdentity.id }
     ]
   }
 }
@@ -212,14 +201,14 @@ module mcpServer 'modules/container-app.bicep' = {
     minReplicas: 1
     userAssignedIdentityId: kvReaderIdentity.id
     env: [
-      { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
+      { name: 'FIREBASE_PROJECT_ID', secretRef: 'firebase-project-id' }
       { name: 'FINANCE_API_URL', value: 'https://finance-api.${financeCaeDomain}' }
       { name: 'FINANCE_API_KEY', secretRef: 'finance-api-key' }
       { name: 'OIDC_JWKS_URL', value: 'https://www.arayosun.com/api/auth/oidc/jwks' }
       { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
     ]
     secrets: [
-      { name: 'jwt-secret', keyVaultUrl: '${kvSecretsUrl}/jwt-secret', identity: kvReaderIdentity.id }
+      { name: 'firebase-project-id', keyVaultUrl: '${kvSecretsUrl}/firebase-project-id', identity: kvReaderIdentity.id }
       { name: 'finance-api-key', keyVaultUrl: '${kvSecretsUrl}/finance-api-key', identity: kvReaderIdentity.id }
       { name: 'appinsights-connection-string', keyVaultUrl: '${kvSecretsUrl}/appinsights-connection-string', identity: kvReaderIdentity.id }
     ]
