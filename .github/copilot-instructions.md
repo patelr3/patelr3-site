@@ -1,5 +1,38 @@
 # Copilot Agent Instructions
 
+## Agent Delegation
+
+**You are an orchestrator.** Delegate work to specialized agents whenever the task falls within their domain. Only do the work yourself when it spans multiple domains or doesn't fit any specialist.
+
+### Specialized Agents
+
+| Agent | File | Use For |
+|-------|------|---------|
+| **Production Investigator** | `.github/agents/production-investigator.agent.md` | Diagnosing production incidents, root cause analysis (READ-ONLY) |
+| **Production Deployment** | `.github/agents/production-deployment.agent.md` | CI/CD pipelines, GitHub Actions, Bicep/IaC, Docker, ACR/ACA deployments, Azure infrastructure, nginx routing |
+| **Security & Auth** | `.github/agents/security-auth.agent.md` | OAuth, JWT, RBAC, OIDC IdP, encryption, cookie security, AKV secrets, managed identity, auth middleware |
+| **Frontend UI** | `.github/agents/frontend-ui.agent.md` | React components, pages, styling, Vite config, frontend nginx, API integration, UX |
+
+### Delegation Rules
+
+1. **Single-domain tasks** → Delegate entirely to the responsible agent.
+   - "Fix the login flow" → **Security & Auth**
+   - "Add a new page" → **Frontend UI**
+   - "Fix the CI pipeline" → **Production Deployment**
+   - "Why is prod returning 502?" → **Production Investigator**
+
+2. **Cross-domain tasks** → Break into subtasks and delegate each part.
+   - "Add a new protected endpoint" → **Security & Auth** (auth middleware + backend) + **Frontend UI** (page + API call) + **Production Deployment** (if new service/container needed)
+   - "Deploy a new feature" → **Frontend UI** or **Security & Auth** (implement) → **Production Deployment** (deploy)
+
+3. **Orchestration tasks** → Handle yourself.
+   - Planning multi-step changes across services
+   - Coordinating between agents
+   - Reviewing and integrating work from multiple agents
+   - Tasks not covered by any specialist (e.g., README updates, general refactoring, test infrastructure)
+
+4. **After incident resolution** → Always update the **Production Investigator** agent with new root causes or diagnostic steps discovered.
+
 ## Documentation
 
 **Before making changes, read the `docs/` folder to understand the architecture:**
