@@ -1,14 +1,8 @@
 // SunnieAI chat proxy — forwards chat requests to Azure AI Foundry Agent Service.
-// Supports two modes:
-//   1. Agent mode (FOUNDRY_MCP_CONNECTION_ID set) — uses Foundry Responses API
-//      with agent_reference (agent has MCP tools with OAuth identity passthrough).
-//   2. Inline tools mode (fallback) — sends per-request MCP tool config with
-//      user JWT in headers (legacy, for when no agent connection is configured).
+// Uses the Responses API with agent_reference (agent has model, instructions,
+// and MCP tools with OAuth identity passthrough configured server-side).
 // Manages conversation history locally with rolling summarization.
 import { Router } from "express";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { trace, context, SpanStatusCode } from "./tracing.js";
 import logger from "./logger.js";
@@ -27,32 +21,6 @@ const tracer = trace.getTracer("chat");
 // Azure AI Foundry config
 const FOUNDRY_ENDPOINT = config.foundryProjectEndpoint;
 const FOUNDRY_AGENT_NAME = config.foundryAgentName;
-const MCP_SERVER_URL = config.mcpServerUrl;
-
-// Agent instructions: short role prompt + domain knowledge from markdown file
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const AGENT_KNOWLEDGE = readFileSync(join(__dirname, "agent-knowledge.md"), "utf-8");
-const AGENT_INSTRUCTIONS_BASE =
-  "You are SunnieAI, a personal finance assistant. " +
-  "You have access to the user's Actual Budget data through MCP tools. " +
-  "Use the available tools to help manage budgets, accounts, transactions, " +
-  "categories, and more. Be friendly, concise, and helpful. " +
-  "Confirm destructive actions before executing.\n\n" +
-  "IMPORTANT: Always call MCP tools to fetch real data before answering financial questions. " +
-  "Never respond with placeholder text like 'let me look into that' — complete the full " +
-  "analysis in your response. When analyzing trends or comparisons, retrieve all necessary " +
-  "data, compute the results, and present them with specific numbers and formatting.\n\n" +
-  AGENT_KNOWLEDGE;
-
-// Build instructions with current date injected so the model knows "today"
-function getAgentInstructions() {
-  const now = new Date();
-  const dateStr = now.toLocaleDateString("en-US", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
-    timeZone: "America/New_York",
-  });
-  return `Current date: ${dateStr}\n\n${AGENT_INSTRUCTIONS_BASE}`;
-}
 
 // Foundry v1 endpoint: {project-endpoint}/openai/v1 (version embedded in path)
 function getOpenAIBaseUrl() {
@@ -316,46 +284,19 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     await addChatMessage(threadId, "user", content, vaultKey);
 
     // 3. Create response (streaming) via Responses API
-    const userJwt = req.cookies.access_token;
-
-    // When FOUNDRY_MCP_CONNECTION_ID is set, the Foundry agent has MCP tools
-    // configured server-side with OAuth identity passthrough — no inline tools needed.
-    // Otherwise, fall back to per-request inline MCP tools with user JWT.
-    const useAgentReference = !!(config.foundryMcpConnectionId && FOUNDRY_AGENT_NAME);
-    const mcpTools = [];
-    if (!useAgentReference && MCP_SERVER_URL && userJwt) {
-      mcpTools.push({
-        type: "mcp",
-        server_label: "actual-budget-mcp",
-        server_url: `${MCP_SERVER_URL.replace(/\/+$/, "")}/mcp`,
-        headers: { Authorization: `Bearer ${userJwt}` },
-        require_approval: "never",
-      });
-    }
 
     function buildResponseBody(inputData, extraOpts = {}) {
-      const body = {
+      return {
         input: inputData,
         stream: true,
         store: false,
         max_output_tokens: 16384,
-        ...extraOpts,
-      };
-      if (useAgentReference) {
-        // New Foundry experience: agent has model, instructions, and MCP tools
-        body.agent_reference = {
+        agent_reference: {
           name: FOUNDRY_AGENT_NAME,
           type: "agent_reference",
-        };
-      } else {
-        // Inline mode: specify model + instructions + tools directly
-        body.model = "gpt-4.1";
-        body.instructions = getAgentInstructions();
-        if (mcpTools.length > 0) {
-          body.tools = mcpTools;
-        }
-      }
-      return body;
+        },
+        ...extraOpts,
+      };
     }
 
     // 4. Stream SSE response to client
