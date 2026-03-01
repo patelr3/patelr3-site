@@ -286,6 +286,27 @@ export default function SunnieAI({ user }) {
                 });
                 continue;
               }
+              // Fallback: handle raw Foundry oauth consent events
+              if (event.type === "response.oauth_consent_requested") {
+                const oauthUrl = event.consent_link || event.authorization_url || event.url || "";
+                if (oauthUrl) {
+                  const consentMsg =
+                    "🔐 To access your budget data, please authorize SunnieAI:\n\n" +
+                    `[Authorize SunnieAI](${oauthUrl})\n\n` +
+                    "After authorizing, send your message again.";
+                  assistantText = consentMsg;
+                  setAgentStatus(null);
+                  setMessages((prev) => {
+                    const updated = [...prev];
+                    updated[updated.length - 1] = {
+                      role: "assistant",
+                      content: consentMsg,
+                    };
+                    return updated;
+                  });
+                  continue;
+                }
+              }
               // Extract text delta — new Responses API format + classic fallback
               const delta =
                 (event.type === "response.output_text.delta" && event.delta) ||

@@ -403,9 +403,20 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
             // Detect OAuth consent request from Foundry
             if (event.type === "response.oauth_consent_requested") {
-              const consentUrl = event.url || event.item?.url || "";
+              const consentUrl = event.consent_link || event.authorization_url || event.url || event.item?.consent_link || event.item?.authorization_url || event.item?.url || "";
               if (consentUrl) {
                 logger.info("OAuth consent requested", { label, url: consentUrl });
+                res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: consentUrl })}\n\n`);
+              } else {
+                logger.warn("OAuth consent event with no URL", { label, eventKeys: Object.keys(event).join(",") });
+              }
+            }
+
+            // Also detect oauth_consent_request in output_item.added events
+            if (event.type === "response.output_item.added" && event.item?.type === "oauth_consent_request") {
+              const consentUrl = event.item.consent_link || event.item.authorization_url || event.item.url || "";
+              if (consentUrl) {
+                logger.info("OAuth consent from output item", { label, url: consentUrl });
                 res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: consentUrl })}\n\n`);
               }
             }
@@ -435,10 +446,12 @@ router.post("/threads/:threadId/messages", async (req, res) => {
       let oauthConsentUrl = null;
       for (const item of output) {
         if (item.type === "oauth_consent_request") {
-          oauthConsentUrl = item.url || "";
+          oauthConsentUrl = item.consent_link || item.authorization_url || item.url || "";
           if (oauthConsentUrl) {
             logger.info("OAuth consent found in output", { label, url: oauthConsentUrl });
             res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: oauthConsentUrl })}\n\n`);
+          } else {
+            logger.warn("OAuth consent output item with no URL", { label, itemKeys: Object.keys(item).join(",") });
           }
         }
       }
