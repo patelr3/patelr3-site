@@ -68,6 +68,9 @@ jobs:
           GOOGLE_CLIENT_SECRET=fake-client-secret
           DATABASE_URL=postgresql://patelr3:ci-test-password@postgres:5432/patelr3_site
           FRONTEND_URL=http://localhost
+          FIREBASE_PROJECT_ID=patelr3-site
+          FINANCE_API_URL=http://localhost:9999
+          FINANCE_API_KEY=fake-finance-key
           EOF
 
       - name: Start services
