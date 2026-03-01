@@ -36,6 +36,62 @@ You own the observability infrastructure for all services:
 - **Connection string:** Stored in AKV as `appinsights-connection-string`, referenced by auth-api ACA
 - **What's traced:** HTTP requests, Express middleware, Postgres queries (auto-instrumented)
 - **What's logged:** Request metadata, auth events, chat events (no user content)
+- **Workspace:** App Insights data is queryable via `az monitor app-insights` CLI and KQL in the Azure Portal
+
+**Querying App Insights for RCA:**
+
+```bash
+# Get the App Insights resource name
+az monitor app-insights component list \
+  --resource-group patelr3-site-rg \
+  --query '[].{name:name, instrumentationKey:instrumentationKey, connectionString:connectionString}' -o table
+
+# Query recent failed requests (last 1 hour)
+az monitor app-insights query \
+  --app <APP_INSIGHTS_NAME> \
+  --resource-group patelr3-site-rg \
+  --analytics-query "requests | where timestamp > ago(1h) and success == false | project timestamp, name, resultCode, duration, operation_Id | order by timestamp desc | take 50"
+
+# Query exceptions/errors
+az monitor app-insights query \
+  --app <APP_INSIGHTS_NAME> \
+  --resource-group patelr3-site-rg \
+  --analytics-query "exceptions | where timestamp > ago(1h) | project timestamp, type, outerMessage, operation_Id | order by timestamp desc | take 50"
+
+# Trace a specific request end-to-end using operation_Id
+az monitor app-insights query \
+  --app <APP_INSIGHTS_NAME> \
+  --resource-group patelr3-site-rg \
+  --analytics-query "union requests, dependencies, traces, exceptions | where operation_Id == '<OPERATION_ID>' | project timestamp, itemType, name, resultCode, duration, message, type | order by timestamp asc"
+
+# Query dependency calls (downstream services, Postgres, Foundry)
+az monitor app-insights query \
+  --app <APP_INSIGHTS_NAME> \
+  --resource-group patelr3-site-rg \
+  --analytics-query "dependencies | where timestamp > ago(1h) and success == false | project timestamp, name, target, resultCode, duration, operation_Id | order by timestamp desc | take 50"
+
+# Query custom traces/logs (structured logging output)
+az monitor app-insights query \
+  --app <APP_INSIGHTS_NAME> \
+  --resource-group patelr3-site-rg \
+  --analytics-query "traces | where timestamp > ago(1h) | project timestamp, message, severityLevel, operation_Id | order by timestamp desc | take 50"
+```
+
+**Key KQL tables for RCA:**
+
+| Table | Contains |
+|-------|----------|
+| `requests` | Incoming HTTP requests (status, duration, URL) |
+| `dependencies` | Outgoing calls (Postgres queries, Foundry API, finance-api) |
+| `exceptions` | Unhandled errors and stack traces |
+| `traces` | Custom log messages from structured logger |
+| `customEvents` | Custom telemetry events |
+
+**Tips:**
+- Use `operation_Id` to correlate all telemetry for a single request across services
+- Check `dependencies` for slow or failed downstream calls (Foundry, Postgres, finance-api)
+- Look at `exceptions` first for stack traces — they often pinpoint the exact failure
+- Filter by `cloud_RoleName` to isolate telemetry from a specific ACA service
 
 ### Key Files
 
@@ -214,14 +270,53 @@ az containerapp logs show \
   --type system
 ```
 
-### Step 4: Check GitHub Actions
+### Step 4: Query App Insights Traces
+
+App Insights provides distributed tracing and richer telemetry than container logs alone. Use it to correlate requests across services and find failed dependencies.
+
+```bash
+# 1. Find the App Insights resource name
+APP_INSIGHTS=$(az monitor app-insights component list \
+  --resource-group patelr3-site-rg \
+  --query '[0].name' -o tsv)
+
+# 2. Check for recent failures (adjust time window as needed)
+az monitor app-insights query \
+  --app "$APP_INSIGHTS" \
+  --resource-group patelr3-site-rg \
+  --analytics-query "requests | where timestamp > ago(1h) and success == false | summarize count() by resultCode, name | order by count_ desc"
+
+# 3. Find slow or failed dependency calls (Postgres, Foundry, finance-api)
+az monitor app-insights query \
+  --app "$APP_INSIGHTS" \
+  --resource-group patelr3-site-rg \
+  --analytics-query "dependencies | where timestamp > ago(1h) and (success == false or duration > 5000) | project timestamp, name, target, resultCode, duration | order by timestamp desc | take 20"
+
+# 4. Get exceptions with stack traces
+az monitor app-insights query \
+  --app "$APP_INSIGHTS" \
+  --resource-group patelr3-site-rg \
+  --analytics-query "exceptions | where timestamp > ago(1h) | project timestamp, type, outerMessage, innermostMessage | order by timestamp desc | take 20"
+
+# 5. End-to-end trace for a specific operation (get operation_Id from steps above)
+az monitor app-insights query \
+  --app "$APP_INSIGHTS" \
+  --resource-group patelr3-site-rg \
+  --analytics-query "union requests, dependencies, traces, exceptions | where operation_Id == '<ID>' | order by timestamp asc"
+```
+
+**When to use App Insights vs container logs:**
+- **Container logs** (`az containerapp logs`): stdout/stderr, good for startup errors and recent console output
+- **App Insights**: Distributed traces with correlation IDs, dependency tracking, performance metrics, exceptions with stack traces — use this for deeper RCA
+
+### Step 5: Check GitHub Actions
 
 Use the GitHub MCP tools to inspect recent workflow runs:
 - `list_workflow_runs` for `deploy.yml` — check for failures
 - `get_job_logs` for failed jobs — read error output
 - Check if a deployment is currently `in_progress` (concurrent deploys cause `DeploymentActive` errors)
 
-### Step 5: Check Secrets & Config
+### Step 6: Check Secrets & Config
 
 ```bash
 # Verify AKV secrets exist (names only, not values)
@@ -240,7 +335,7 @@ az containerapp show \
   --query 'properties.configuration.secrets[].name' -o tsv
 ```
 
-### Step 6: Check Inter-Service Connectivity
+### Step 7: Check Inter-Service Connectivity
 
 ```bash
 # Verify finance-api is reachable from auth-api's perspective
@@ -252,7 +347,7 @@ curl -s -o /dev/null -w '%{http_code}' \
 # ACAs in the same environment communicate via internal FQDN (http://patelr3-auth-api)
 ```
 
-### Step 7: Check Feature-Specific Dependencies
+### Step 8: Check Feature-Specific Dependencies
 
 Some features depend on infrastructure beyond the core stack. Check the full dependency chain:
 
