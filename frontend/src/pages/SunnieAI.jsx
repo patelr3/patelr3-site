@@ -177,15 +177,36 @@ export default function SunnieAI({ user }) {
     const refSuffix = (id) => id ? `\n\n*Reference ID: \`${id}\`*` : "";
 
     try {
-      const res = await fetch(`/api/auth/chat/threads/${threadId}/messages`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: userMsg,
-          mcpServers: enabledServers,
-        }),
-      });
+      const controller = new AbortController();
+      const wallTimeout = setTimeout(() => controller.abort(), 240_000); // 4 min hard limit
+      let res;
+      try {
+        res = await fetch(`/api/auth/chat/threads/${threadId}/messages`, {
+          method: "POST",
+          credentials: "include",
+          signal: controller.signal,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content: userMsg,
+            mcpServers: enabledServers,
+          }),
+        });
+      } catch (fetchErr) {
+        clearTimeout(wallTimeout);
+        if (fetchErr.name === "AbortError") {
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              role: "assistant",
+              content: "The request took too long. Please try a simpler question." + refSuffix(correlationId),
+            };
+            return updated;
+          });
+          setStreaming(false);
+          return;
+        }
+        throw fetchErr;
+      }
 
       if (!res.ok) {
         const err = await res.json();
@@ -312,6 +333,7 @@ export default function SunnieAI({ user }) {
         setMessages(allMsgs);
       }
     } catch {
+      clearTimeout(wallTimeout);
       setMessages((prev) => {
         const updated = [...prev];
         updated[updated.length - 1] = {
@@ -321,6 +343,7 @@ export default function SunnieAI({ user }) {
         return updated;
       });
     }
+    clearTimeout(wallTimeout);
     setStreaming(false);
     setAgentStatus(null);
   };

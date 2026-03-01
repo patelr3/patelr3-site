@@ -98,6 +98,7 @@ async function foundryFetch(path, opts = {}) {
     logger.info("Foundry request", { method: opts.method || "GET", url });
     const res = await fetch(url, {
       ...opts,
+      signal: opts.signal || AbortSignal.timeout(60_000),
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -590,6 +591,14 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           lastStatus = contResult.status;
           lastOutput = contResult.output;
 
+          if (!contResult.status) {
+            logger.error("Continuation stream timeout", { round: continuationRound });
+            const errMsg = "\n\n⚠️ The request timed out while completing the analysis. Please try again.";
+            assistantText += errMsg;
+            res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
+            break;
+          }
           if (contResult.status === "failed") {
             logger.error("Continuation response failed", { round: continuationRound });
             const errMsg = "\n\n⚠️ I had trouble completing that request. Could you try rephrasing or breaking it into smaller questions?";
