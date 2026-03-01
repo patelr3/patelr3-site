@@ -16,15 +16,38 @@ if (connStr) {
   console.log("[tracing] Console exporter (no APPLICATIONINSIGHTS_CONNECTION_STRING)");
 }
 
+// Sensitive attribute keys that may be auto-captured by instrumentation
+const SENSITIVE_ATTR_KEYS = [
+  "http.request.body", "http.response.body",
+  "http.request_content_body", "http.response_content_body",
+  "db.statement.parameters",
+];
+
 const sdk = new NodeSDK({
   serviceName: "auth-api",
   traceExporter,
   instrumentations: [
     getNodeAutoInstrumentations({
       // Only enable instrumentations we actually use
-      "@opentelemetry/instrumentation-http": { enabled: true },
+      "@opentelemetry/instrumentation-http": {
+        enabled: true,
+        requestHook: (span, request) => {
+          // Strip any auto-captured body content from outgoing Foundry requests
+          for (const key of SENSITIVE_ATTR_KEYS) {
+            span.setAttribute(key, undefined);
+          }
+        },
+        responseHook: (span) => {
+          for (const key of SENSITIVE_ATTR_KEYS) {
+            span.setAttribute(key, undefined);
+          }
+        },
+      },
       "@opentelemetry/instrumentation-express": { enabled: true },
-      "@opentelemetry/instrumentation-pg": { enabled: true },
+      "@opentelemetry/instrumentation-pg": {
+        enabled: true,
+        enhancedDatabaseReporting: false,
+      },
       // Disable noisy/unused ones
       "@opentelemetry/instrumentation-fs": { enabled: false },
       "@opentelemetry/instrumentation-dns": { enabled: false },

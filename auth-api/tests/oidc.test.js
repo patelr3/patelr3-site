@@ -38,6 +38,8 @@ const mockDb = {
   getThreadSummary: jest.fn(),
   storeVaultKey: jest.fn(),
   getWrappedVaultKey: jest.fn(),
+  getDebugMode: jest.fn().mockResolvedValue(false),
+  setDebugMode: jest.fn().mockResolvedValue(false),
 };
 
 jest.unstable_mockModule("../src/db.js", () => mockDb);

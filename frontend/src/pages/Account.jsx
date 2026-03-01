@@ -12,10 +12,17 @@ export default function Account({ user }) {
   const [pwMsg, setPwMsg] = useState("");
   const [pwErr, setPwErr] = useState("");
 
+  // Debug mode
+  const [debugMode, setDebugMode] = useState(false);
+  const [debugSaving, setDebugSaving] = useState(false);
+
   useEffect(() => {
     fetch(api.account(), { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then(setAccount)
+      .then((data) => {
+        setAccount(data);
+        if (data?.debugMode != null) setDebugMode(data.debugMode);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -49,6 +56,26 @@ export default function Account({ user }) {
       setAccount((a) => ({ ...a, hasPassword: true }));
     } else {
       setPwErr(data.error || "Failed to change password");
+    }
+  };
+
+  const handleDebugToggle = async () => {
+    setDebugSaving(true);
+    try {
+      const res = await fetch(api.debugMode(), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ enabled: !debugMode }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDebugMode(data.debugMode);
+      }
+    } catch {
+      // Revert on error — state unchanged
+    } finally {
+      setDebugSaving(false);
     }
   };
 
@@ -128,6 +155,36 @@ export default function Account({ user }) {
           </form>
         </div>
       )}
+
+      <div className="account-card" style={{ marginTop: "1.5rem" }}>
+        <h3>Developer Settings</h3>
+        <div className="account-field" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <label style={{ fontWeight: 600 }}>Debug Mode</label>
+            <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", color: "var(--text-muted, #888)" }}>
+              When enabled, full chat message content is included in application telemetry for debugging. Disabled by default for privacy.
+            </p>
+          </div>
+          <button
+            onClick={handleDebugToggle}
+            disabled={debugSaving}
+            className={`debug-toggle ${debugMode ? "debug-on" : "debug-off"}`}
+            style={{
+              minWidth: "60px",
+              padding: "0.4rem 0.8rem",
+              borderRadius: "6px",
+              border: "1px solid var(--border, #333)",
+              cursor: debugSaving ? "wait" : "pointer",
+              fontWeight: 600,
+              fontSize: "0.85rem",
+              background: debugMode ? "var(--accent, #4caf50)" : "var(--bg-card, #1e1e1e)",
+              color: debugMode ? "#fff" : "var(--text-muted, #888)",
+            }}
+          >
+            {debugSaving ? "…" : debugMode ? "ON" : "OFF"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

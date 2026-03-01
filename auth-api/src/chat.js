@@ -13,7 +13,7 @@ import {
   createThread, getUserThreads, deleteThread,
   addChatMessage, getChatMessages, getChatMessageCount,
   updateThreadSummary, getThreadSummary,
-  getWrappedVaultKey,
+  getWrappedVaultKey, getDebugMode,
 } from "./db.js";
 import { deriveServerKey, unwrapKey } from "./crypto.js";
 
@@ -304,6 +304,9 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     // 0. Unwrap user's vault key (null if encryption not configured)
     const vaultKey = await getUserVaultKey(userId);
 
+    // 0b. Check if user has debug mode enabled for telemetry
+    const debugMode = await getDebugMode(userId);
+
     // 1. Build input with summarization (BEFORE storing the new message)
     const input = await buildInput(threadId, content, vaultKey);
 
@@ -479,7 +482,11 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     }
 
     try {
-      await tracer.startActiveSpan("chat.runAgent", { attributes: { threadId, model: "gpt-5.2-chat" } }, async (agentSpan) => {
+      await tracer.startActiveSpan("chat.runAgent", { attributes: { threadId, model: "gpt-5.2-chat", debugMode } }, async (agentSpan) => {
+      if (debugMode) {
+        agentSpan.setAttribute("chat.user_message", content.substring(0, 4096));
+        agentSpan.setAttribute("chat.input_message_count", input.length);
+      }
       const MAX_ATTEMPTS = 3;
       let currentInput = input;
       let attempt = 0;
@@ -577,6 +584,9 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         }
 
         agentSpan.setAttributes({ attempt: attempt + 1, continuations: continuationRound });
+        if (debugMode) {
+          agentSpan.setAttribute("chat.assistant_response", assistantText.substring(0, 4096));
+        }
         // If we reached here without failure, we're done
         if (result.status !== "failed") break;
       }
