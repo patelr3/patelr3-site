@@ -120,6 +120,8 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'FINANCE_API_KEY', secretRef: 'finance-api-key' }
       { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
       { name: 'OIDC_SIGNING_KEY_JWK', secretRef: 'oidc-signing-key-jwk' }
+      { name: 'FOUNDRY_PROJECT_ENDPOINT', secretRef: 'foundry-project-endpoint' }
+      { name: 'FOUNDRY_AGENT_NAME', value: 'sunnieai' }
     ]
     secrets: [
       { name: 'firebase-project-id', keyVaultUrl: '${kvSecretsUrl}/firebase-project-id', identity: kvReaderIdentity.id }
@@ -130,6 +132,7 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'finance-api-key', keyVaultUrl: '${kvSecretsUrl}/finance-api-key', identity: kvReaderIdentity.id }
       { name: 'appinsights-connection-string', keyVaultUrl: '${kvSecretsUrl}/appinsights-connection-string', identity: kvReaderIdentity.id }
       { name: 'oidc-signing-key-jwk', keyVaultUrl: '${kvSecretsUrl}/oidc-signing-key-jwk', identity: kvReaderIdentity.id }
+      { name: 'foundry-project-endpoint', keyVaultUrl: '${kvSecretsUrl}/foundry-project-endpoint', identity: kvReaderIdentity.id }
     ]
   }
 }
@@ -201,14 +204,12 @@ module mcpServer 'modules/container-app.bicep' = {
     minReplicas: 1
     userAssignedIdentityId: kvReaderIdentity.id
     env: [
-      { name: 'FIREBASE_PROJECT_ID', secretRef: 'firebase-project-id' }
+      { name: 'OIDC_JWKS_URL', value: 'https://www.arayosun.com/api/auth/oidc/jwks' }
       { name: 'FINANCE_API_URL', value: 'https://finance-api.${financeCaeDomain}' }
       { name: 'FINANCE_API_KEY', secretRef: 'finance-api-key' }
-      { name: 'OIDC_JWKS_URL', value: 'https://www.arayosun.com/api/auth/oidc/jwks' }
       { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
     ]
     secrets: [
-      { name: 'firebase-project-id', keyVaultUrl: '${kvSecretsUrl}/firebase-project-id', identity: kvReaderIdentity.id }
       { name: 'finance-api-key', keyVaultUrl: '${kvSecretsUrl}/finance-api-key', identity: kvReaderIdentity.id }
       { name: 'appinsights-connection-string', keyVaultUrl: '${kvSecretsUrl}/appinsights-connection-string', identity: kvReaderIdentity.id }
     ]

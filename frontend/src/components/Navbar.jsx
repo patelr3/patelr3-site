@@ -9,6 +9,7 @@ const PAGE_TITLES = {
   "/account": "Account",
   "/signin": "Sign In",
   "/services": "Services",
+  "/sunnieai": "SunnieAI",
 };
 
 export default function Navbar({ user, onLogout }) {
@@ -49,6 +50,12 @@ export default function Navbar({ user, onLogout }) {
         {user && (
           <NavLink to="/dashboard" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} onClick={handleNavClick}>
             Dashboard
+          </NavLink>
+        )}
+
+        {user && (
+          <NavLink to="/sunnieai" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} onClick={handleNavClick}>
+            SunnieAI
           </NavLink>
         )}
 

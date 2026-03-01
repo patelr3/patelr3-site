@@ -78,8 +78,8 @@ In production, the frontend container runs Nginx, which serves the SPA and rever
 | ----------------------- | -------------------- | --------------------------------------------------- | ----- |
 | **nginx**               | Nginx 1.25           | Reverse proxy, auth gate (local dev only)            | 80    |
 | **frontend**            | React 18 (Vite) + Nginx | SPA + API reverse proxy (same-origin in prod)     | 3000  |
-| **auth-api**            | Node.js 20 Express   | Firebase Admin SDK, RBAC, OIDC IdP, deploy proxy     | 8000  |
-| **mcp-server**          | Node.js 20 MCP SDK   | ActualBudget MCP server (Azure AI Foundry)           | 8090  |
+| **auth-api**            | Node.js 20 Express   | Firebase Admin SDK, RBAC, OIDC IdP, chat proxy, deploy proxy | 8000  |
+| **mcp-server**          | Node.js 20 MCP SDK   | ActualBudget MCP server (OIDC auth, MCP Streamable HTTP) | 8090  |
 | **hello-world**         | Node.js 20 Express   | Sample public micro-service                          | 5000  |
 | **hello-world-restricted** | Node.js 20 Express | Sample restricted micro-service                      | 5001  |
 | **postgres**            | PostgreSQL 16        | Users, roles, services, access requests               | 5432  |
@@ -165,6 +165,44 @@ ActualBudget Instance                 auth-api (OIDC IdP)                  Googl
 - Access tokens stored in-memory with 1-hour TTL
 - Supports PKCE (S256 and plain)
 - Google redirect URI: `{FRONTEND_URL}/api/auth/oidc/callback` (single URI for all AB instances)
+
+---
+
+## SunnieAI Chat
+
+SunnieAI is an AI budget assistant powered by Azure AI Foundry. It uses the **Foundry new experience** (Responses API + Conversations API) — never the classic threads/runs API.
+
+### Architecture
+
+```
+Frontend (React)
+  │ Firebase ID token
+  ▼
+auth-api ── DefaultAzureCredential ──▶ Foundry Responses API
+  │ SSE                                    │ agent_reference: sunnieai
+  ▼                                        ▼
+Browser                              Foundry Agent
+                                           │ OAuth Identity Passthrough
+                                           ▼
+                                     MCP Server (OIDC auth)
+                                           │
+                                     Actual Budget data
+```
+
+### Key Design Decisions
+
+- **No database storage** — conversations are ephemeral, managed by Foundry Conversations API. Page refresh = new conversation.
+- **OAuth Identity Passthrough** — Foundry handles the OAuth flow between the user, our OIDC IdP, and the MCP server. First-time users see a consent popup.
+- **SSE streaming** — auth-api relays Foundry response events as SSE to the frontend.
+- **MCP server uses OIDC-only auth** — validates tokens issued by our OIDC IdP (forwarded by Foundry), not Firebase tokens.
+
+### Chat Routes (auth-api)
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/auth/chat/health` | GET | Health check |
+| `/auth/chat/conversations` | POST | Create new Foundry conversation |
+| `/auth/chat/conversations/:id/messages` | POST | Send message — SSE streaming |
 
 ---
 
@@ -294,6 +332,8 @@ CREATE TABLE oidc_auth_codes (
 | `VITE_FIREBASE_AUTH_DOMAIN` | Firebase Auth domain (frontend)                  |
 | `VITE_FIREBASE_PROJECT_ID` | Firebase project ID (frontend)                    |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Azure App Insights connection string |
+| `FOUNDRY_PROJECT_ENDPOINT` | Azure AI Foundry project endpoint (auth-api) |
+| `FOUNDRY_AGENT_NAME` | Foundry agent name (default: `sunnieai`) |
 
 **Production secrets** are stored in Azure Key Vault (`patelr3kvl3ytczhajsp7i`) and referenced by ACAs via `keyVaultUrl` + a shared user-assigned managed identity (`patelr3-kv-reader`). Updating a secret in AKV automatically propagates to all ACAs within 30 minutes.
 
@@ -301,12 +341,13 @@ CREATE TABLE oidc_auth_codes (
 |------------|---------|
 | `firebase-api-key` | frontend (build arg) |
 | `firebase-auth-domain` | frontend (build arg) |
-| `firebase-project-id` | frontend (build arg), auth-api, hello-world, hello-world-restricted, mcp-server |
+| `firebase-project-id` | frontend (build arg), auth-api, hello-world, hello-world-restricted |
 | `google-client-id`, `google-client-secret` | auth-api (OIDC only) |
 | `jwt-secret` | auth-api (OIDC only) |
 | `database-url` | auth-api |
 | `finance-api-key` | auth-api, mcp-server |
 | `oidc-signing-key-jwk` | auth-api |
+| `foundry-project-endpoint` | auth-api |
 | `postgres-password` | postgres (Bicep param) |
 
 ---

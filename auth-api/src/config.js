@@ -18,6 +18,9 @@ const config = {
   },
   oidcSigningKeyJwk: process.env.OIDC_SIGNING_KEY_JWK || "",
   jwtSecret: process.env.JWT_SECRET || "change-me",  // kept for OIDC backward compat only
+  // Foundry (new experience) — Responses API + Conversations API
+  foundryProjectEndpoint: process.env.FOUNDRY_PROJECT_ENDPOINT || "",
+  foundryAgentName: process.env.FOUNDRY_AGENT_NAME || "sunnieai",
   port: 8000,
 };
 

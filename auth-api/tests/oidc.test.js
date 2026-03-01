@@ -30,6 +30,21 @@ const mockDb = {
 
 jest.unstable_mockModule("../src/db.js", () => mockDb);
 
+// Mock tracing (imported by chat.js)
+jest.unstable_mockModule("../src/tracing.js", () => ({
+  trace: { getTracer: () => ({ startSpan: () => ({ setStatus: jest.fn(), end: jest.fn(), spanContext: () => ({ traceId: "t" }) }), startActiveSpan: jest.fn((_n, _o, fn) => fn({ setStatus: jest.fn(), addEvent: jest.fn(), end: jest.fn(), spanContext: () => ({ traceId: "t" }) })) }) },
+  context: {},
+  SpanStatusCode: { OK: 1, ERROR: 2 },
+}));
+
+// Mock @azure/ai-projects and @azure/identity (imported by chat.js)
+jest.unstable_mockModule("@azure/ai-projects", () => ({
+  AIProjectClient: jest.fn().mockImplementation(() => ({
+    getOpenAIClient: jest.fn(() => ({ conversations: { create: jest.fn() }, responses: { create: jest.fn() } })),
+  })),
+}));
+jest.unstable_mockModule("@azure/identity", () => ({ DefaultAzureCredential: jest.fn() }));
+
 // Mock firebase-admin/app and firebase-admin/auth
 jest.unstable_mockModule("firebase-admin/app", () => ({
   initializeApp: jest.fn(),

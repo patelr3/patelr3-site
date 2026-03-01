@@ -12,6 +12,7 @@ import {
   findUserById, listUsers, updateUserRole, touchLastLogin, deleteUser,
 } from "./db.js";
 import oidcRouter from "./oidc.js";
+import chatRouter from "./chat.js";
 
 // Initialize Firebase Admin SDK (uses GOOGLE_APPLICATION_CREDENTIALS or ADC)
 initializeApp({ projectId: config.firebaseProjectId });
@@ -252,6 +253,9 @@ app.delete("/auth/users/:id", requireAuth, requireAdmin, async (req, res) => {
 
 // ── OIDC Identity Provider (for ActualBudget instances) ────────
 app.use("/auth/oidc", oidcRouter);
+
+// ── SunnieAI chat (Foundry Responses API) ──────────────────────
+app.use("/auth", requireAuth, chatRouter);
 
 // ── Actual Budget deployment proxy (to finance-api) ────────────
 

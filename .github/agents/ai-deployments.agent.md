@@ -18,7 +18,7 @@ You are the AI deployments and MCP specialist for patelr3-site (https://www.aray
 | Agent creation | `client.agents.create_agent()` / `AgentsClient` | `client.agents.create_version()` / REST `POST /agents/{name}/versions` |
 | Chat | Threads + Runs (`client.threads`, `client.runs`) | Responses API (`openai_client.responses.create()` with `agent_reference`) |
 | State | Threads + Messages | Conversations (`openai_client.conversations`) |
-| JS SDK | `@azure/ai-agents` (AgentsClient) | Direct HTTP to Responses API (`/openai/v1/responses`) |
+| JS SDK | `@azure/ai-agents` (AgentsClient) | `@azure/ai-projects` SDK (`AIProjectClient.getOpenAIClient()`) |
 | Agent ID format | `asst_xxxx` | `{name}:{version}` (e.g. `sunnieai:3`) |
 
 ### Key Microsoft Docs (New Experience)
@@ -27,6 +27,7 @@ You are the AI deployments and MCP specialist for patelr3-site (https://www.aray
 - **Migration guide:** https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/migrate
 - **Hosted agents:** https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents
 - **MCP tools:** https://learn.microsoft.com/en-us/azure/developer/ai/intro-agents-mcp
+- **MCP OAuth Identity Passthrough:** https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/mcp-authentication#oauth-identity-passthrough
 
 ## Architecture
 
@@ -42,28 +43,29 @@ User → Frontend → auth-api → Foundry Responses API (/openai/v1/responses)
                               User's Actual Budget data
 ```
 
-### Two Code Paths in chat.js
+### chat.js — Single Code Path (Agent Reference)
 
-`auth-api/src/chat.js` has two modes controlled by `FOUNDRY_MCP_CONNECTION_ID`:
-
-1. **Agent reference mode** (when `FOUNDRY_MCP_CONNECTION_ID` is set):
-   - Sends `agent_reference: {name: "sunnieai", type: "agent_reference"}` in the request body
-   - Agent has MCP tools configured server-side with OAuth identity passthrough
-   - No inline tools, no per-request JWT headers
-   - Agent handles model selection, instructions, and tool configuration
-
-2. **Inline tools mode** (fallback, when connection ID not set):
-   - Sends `model`, `instructions`, and `tools` array directly in the request body
-   - MCP tool includes per-request `Authorization: Bearer <userJwt>` header
-   - Used for local development or when agent connection isn't configured
+`auth-api/src/chat.js` always uses **agent reference mode**:
+- Sends `agent_reference: {name: "sunnieai", type: "agent_reference"}` in the request body
+- Agent has MCP tools configured server-side in Foundry with OAuth identity passthrough
+- No inline tools, no per-request JWT headers, no fallback mode
+- Agent handles model selection, instructions, and tool configuration
+- Uses `@azure/ai-projects` SDK: `AIProjectClient` → `getOpenAIClient()` → `responses.create()` + `conversations.create()`
 
 ### MCP Server Authentication
 
-The MCP server (`sunniebudget/mcp-server/src/auth.js`) supports dual token validation:
-- **HS256** (shared `JWT_SECRET`) — fast path, used by inline tools mode
-- **RS256** (OIDC via JWKS) — used by Foundry OAuth identity passthrough
+The MCP server (`sunniebudget/mcp-server/src/auth.js`) uses **OIDC-only** token validation:
+- **RS256** via JWKS — tokens issued by auth-api OIDC IdP, forwarded by Foundry OAuth identity passthrough
+- `OIDC_JWKS_URL` is **required** — server throws at startup if not set
 
 JWKS URL: `https://www.arayosun.com/api/auth/oidc/jwks`
+
+### MCP Server Transport
+
+The MCP server supports **MCP Streamable HTTP only** (no REST endpoints):
+- `GET /mcp` — SSE transport discovery (returns `event: endpoint\ndata: /mcp`)
+- `POST /mcp` — JSON-RPC 2.0 (methods: `initialize`, `tools/list`, `tools/call`)
+- `GET /health` — Health check
 
 ### OIDC Identity Provider
 
@@ -106,7 +108,7 @@ curl -s -X POST "${ENDPOINT}/agents/sunnieai/versions?api-version=v1" \
       "instructions": "...",
       "tools": [{
         "type": "mcp",
-        "server_label": "actual-budget-mcp",
+        "server_label": "sunniebudget-mcp-2",
         "server_url": "https://www.arayosun.com/api/mcp/mcp",
         "require_approval": "never",
         "project_connection_id": "<FOUNDRY_MCP_CONNECTION_ID from AKV>"
@@ -150,20 +152,35 @@ curl -s -X POST "${ENDPOINT}/openai/v1/responses" \
 
 | Variable | Description |
 |----------|-------------|
-| `JWT_SECRET` | Shared secret for HS256 token validation |
-| `OIDC_JWKS_URL` | JWKS endpoint for RS256 OIDC token validation |
+| `OIDC_JWKS_URL` | **(Required)** JWKS endpoint for RS256 OIDC token validation (e.g. `https://www.arayosun.com/api/auth/oidc/jwks`) |
 | `FINANCE_API_URL` | Finance-api base URL |
 | `FINANCE_API_KEY` | Shared API key for finance-api |
+
+### Foundry MCP Tool Connection (Custom OAuth Identity Passthrough)
+
+Configure in Foundry portal → Agent → Tools → Add MCP Server:
+
+| Property | Value |
+|----------|-------|
+| **Server label** | `sunniebudget-mcp-2` |
+| **Server URL** | `https://www.arayosun.com/api/mcp/mcp` |
+| **Auth type** | Custom OAuth — Identity Passthrough |
+| **Client ID** | `foundry-agent` |
+| **Client Secret** | Value from AKV secret `oidc-foundry-client-secret` |
+| **Authorization URL** | `https://www.arayosun.com/api/auth/oidc/authorize` |
+| **Token URL** | `https://www.arayosun.com/api/auth/oidc/token` |
+| **Refresh URL** | `https://www.arayosun.com/api/auth/oidc/token` |
+| **Scopes** | `openid email profile` |
+
+> ⚠️ The `project_connection_id` returned after creating this tool connection is required in the agent definition for OAuth identity passthrough to work.
 
 ## AKV Secrets
 
 | Secret | Used By | Description |
 |--------|---------|-------------|
-| `foundry-project-endpoint` | auth-api | Foundry project endpoint URL |
-| `foundry-agent-name` | auth-api | Agent name (`sunnieai`) |
-| `foundry-agent-id` | auth-api | Legacy agent ID (deprecated) |
-| `foundry-mcp-connection-id` | auth-api | Foundry project connection ID for OAuth MCP |
-| `oidc-foundry-client-secret` | auth-api | OIDC client secret for `foundry-agent` client |
+| `foundry-project-endpoint` | auth-api, CI/CD | Foundry project endpoint URL |
+| `foundry-mcp-connection-id` | CI/CD | Foundry project connection ID for MCP OAuth tool |
+| `oidc-foundry-client-secret` | auth-api (OIDC IdP) | OIDC client secret for `foundry-agent` client |
 
 ## chat.js — Chat Streaming Proxy
 
@@ -171,58 +188,59 @@ curl -s -X POST "${ENDPOINT}/openai/v1/responses" \
 
 ### Key Implementation Details
 
-- **SSE streaming**: Uses `fetch()` with `Accept: text/event-stream`, reads via `ReadableStream.getReader()`
-- **SSE buffer**: Must buffer partial lines across TCP chunks — events can be split across chunks
-- **Timeouts**: Per-read timeout (`STREAM_TIMEOUT_MS = 300s`) fires before the fetch `AbortSignal` (360s) for better diagnostics
-- **Retries**: Up to 3 attempts on `response.failed` with exponential backoff (5s base)
-- **Continuation**: When model hits max output tokens (`response.incomplete` with `max_output_tokens`), auto-continues with `[{type: "response", id: responseId}]` as input
-- **Thread management**: Messages stored in Postgres, conversation history sent as input items
-- **Error correlation**: Every error response includes a `correlationId` for debugging
+- **No database storage** — conversations are ephemeral, managed by Foundry Conversations API
+- **SSE streaming**: Uses `@azure/ai-projects` SDK with `responses.create({ stream: true })`, relays events to frontend
+- **OAuth consent**: Detects `oauth_consent_request` output items, surfaces consent link to frontend via SSE
+- **Conversation management**: Frontend holds `conversationId` in React state; page refresh = new conversation
+- **Continuation**: When model hits max output tokens, frontend re-sends with `previousResponseId`
+- **Error correlation**: Every error response includes a `correlationId` (OTel trace ID)
 - **Foundry auth**: Uses `@azure/identity` `DefaultAzureCredential` with scope `https://ai.azure.com/.default`
+- **OTel tracing**: Spans include `user.id`, `user.email`, `foundry.conversation_id`, `foundry.agent_name`
 
 ### Routes
 
 | Route | Description |
 |-------|-------------|
 | `GET /chat/health` | Health check — verifies Foundry endpoint reachable |
-| `POST /chat/threads` | Create new chat thread |
-| `GET /chat/threads` | List user's threads |
-| `DELETE /chat/threads/:id` | Delete thread and messages |
-| `POST /chat/threads/:id/messages` | Send message — main SSE streaming endpoint |
-| `GET /chat/threads/:id/messages` | Get thread message history |
+| `POST /chat/conversations` | Create new Foundry conversation |
+| `POST /chat/conversations/:id/messages` | Send message — main SSE streaming endpoint |
 
 ## Key Files
 
 | File | Description |
 |------|-------------|
-| `auth-api/src/chat.js` | Chat streaming proxy — dual mode (agent_reference vs inline tools) |
-| `auth-api/src/config.js` | Config with `foundryMcpConnectionId`, `foundryAgentName` |
+| `auth-api/src/chat.js` | Chat streaming proxy — agent_reference mode with SSE |
+| `auth-api/src/config.js` | Config with `foundryProjectEndpoint`, `foundryAgentName` |
 | `auth-api/src/oidc.js` | OIDC Identity Provider (multi-client, wraps Google OAuth) |
-| `auth-api/src/agent-knowledge.md` | Domain knowledge included in agent instructions |
-| `sunniebudget/mcp-server/src/auth.js` | Dual HS256/RS256 token validation |
-| `sunniebudget/mcp-server/src/server.js` | MCP server Express routes |
-| `scripts/setup-foundry-agent.py` | Agent creation script (Python SDK) |
+| `sunniebudget/mcp-server/src/auth.js` | OIDC-only RS256 JWKS token validation |
+| `sunniebudget/mcp-server/src/server.js` | MCP Streamable HTTP server (JSON-RPC 2.0) |
+| `frontend/src/pages/SunnieAI.jsx` | Chat UI (SSE parsing, OAuth consent, ephemeral conversations) |
+| `scripts/update-foundry-agent.mjs` | JS agent version updater — runs in CI/CD after deploy |
+| `scripts/setup-foundry-agent.py` | Python agent creation script (manual use) |
 | `deployments/main.bicep` | Infrastructure with Foundry env vars |
-| `docs/foundry-agent-migration.md` | Migration guide and portal setup steps |
 | `docs/foundry-setup.md` | Original Foundry setup guide |
 
 ## Common Issues
 
 | Issue | Cause | Fix |
 |-------|-------|-----|
-| MCP "Missing or invalid Authorization header" | MCP tool missing `project_connection_id` | Add `project_connection_id` pointing to OAuth connection in agent definition |
+| MCP "Missing or invalid Authorization header" | Foundry not forwarding OAuth token | Verify MCP tool connection has OAuth identity passthrough configured with correct OIDC URLs |
 | 404 on agent call | Using classic `asst_xxx` ID with new API | Use agent name (`sunnieai`) not ID |
-| `tools` and `agent_reference` conflict | Cannot combine inline tools with agent_reference | Use one or the other, controlled by `FOUNDRY_MCP_CONNECTION_ID` |
-| MCP auth errors | OIDC token validation failing | Check JWKS endpoint is reachable, verify `OIDC_JWKS_URL` |
-| Agent not finding tools | MCP server URL wrong or unreachable | Verify `server_url` in agent definition points to public URL |
+| MCP auth errors | OIDC token validation failing | Check JWKS endpoint is reachable, verify `OIDC_JWKS_URL` env var on mcp-server |
+| Agent not finding tools | MCP server URL wrong or unreachable | Verify `server_url` in agent/tool config points to `https://www.arayosun.com/api/mcp/mcp` |
 | OAuth consent loop | Redirect URI mismatch | Ensure Foundry redirect URL is registered in Google console |
+| No conversation state | `store: false` or missing `previous_response_id` | Ensure `store: true` and chain `previous_response_id` across messages |
+| SDK import errors | Using stable `@azure/ai-projects` instead of beta | Install `@azure/ai-projects@beta` — Conversations API requires the preview SDK |
 
 ## Rules
 
 - **NEVER use `@azure/ai-agents` SDK** — it's for the classic experience
 - **NEVER use threads/runs API** — use Responses API with `agent_reference`
+- **Always use `@azure/ai-projects@beta`** — the stable SDK lacks Conversations API support
 - **Always use `agent_reference` by name** (not ID) — e.g. `{name: "sunnieai", type: "agent_reference"}`
 - **Always update agent via `create_version`** — creates a new version, doesn't mutate
+- **No database storage for chat** — conversations are ephemeral (Foundry Conversations API manages state)
 - **Domain is `www.arayosun.com`** — not `patelr3.com`
 - **MCP server is a git submodule** — never use `git add -A` (picks up submodule pointer changes)
 - **Test MCP server changes**: `npm test --prefix sunniebudget/mcp-server`
+- **Test auth-api changes**: `npm test --prefix auth-api`

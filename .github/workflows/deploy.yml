@@ -111,6 +111,11 @@ jobs:
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
       - name: Fetch secrets from Key Vault
         id: secrets
         run: |
@@ -121,6 +126,12 @@ jobs:
           FINANCE_KEY=$(az keyvault secret show --vault-name "$KV_NAME" --name finance-api-key --query value -o tsv)
           echo "::add-mask::$FINANCE_KEY"
           echo "finance_api_key=$FINANCE_KEY" >> "$GITHUB_OUTPUT"
+          FOUNDRY_ENDPOINT=$(az keyvault secret show --vault-name "$KV_NAME" --name foundry-project-endpoint --query value -o tsv)
+          echo "::add-mask::$FOUNDRY_ENDPOINT"
+          echo "foundry_endpoint=$FOUNDRY_ENDPOINT" >> "$GITHUB_OUTPUT"
+          MCP_CONN_ID=$(az keyvault secret show --vault-name "$KV_NAME" --name foundry-mcp-connection-id --query value -o tsv)
+          echo "::add-mask::$MCP_CONN_ID"
+          echo "mcp_connection_id=$MCP_CONN_ID" >> "$GITHUB_OUTPUT"
 
       - name: Deploy Bicep
         run: |
@@ -141,6 +152,13 @@ jobs:
               --resource-group ${{ env.RESOURCE_GROUP }} \
               --image "${ACR_SERVER}/${svc}:${{ env.IMAGE_TAG }}"
           done
+
+      - name: Update Foundry agent version
+        run: |
+          cd auth-api && npm install --omit=dev --ignore-scripts 2>/dev/null
+          FOUNDRY_PROJECT_ENDPOINT="${{ steps.secrets.outputs.foundry_endpoint }}" \
+          FOUNDRY_MCP_CONNECTION_ID="${{ steps.secrets.outputs.mcp_connection_id }}" \
+          node ../scripts/update-foundry-agent.mjs
 
       - name: Verify deployments
         run: |

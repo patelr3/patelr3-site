@@ -23,6 +23,11 @@ const api = {
   // Deployments
   deploymentStatus: (slug) => `/api/auth/deployments/${slug}`,
 
+  // Chat (SunnieAI)
+  chatHealth: () => "/api/auth/chat/health",
+  chatConversations: () => "/api/auth/chat/conversations",
+  chatMessages: (conversationId) => `/api/auth/chat/conversations/${conversationId}/messages`,
+
   serviceEndpoint: (endpointUrl) => endpointUrl,
 };
 
