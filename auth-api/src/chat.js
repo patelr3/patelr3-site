@@ -11,8 +11,7 @@ import {
   createThread, getUserThreads, deleteThread,
   addChatMessage, getChatMessages, getChatMessageCount,
   updateThreadSummary, getThreadSummary,
-  getWrappedVaultKey,
-  getThreadLastResponseId, updateThreadLastResponseId,
+  getWrappedVaultKey, getThreadById,
 } from "./db.js";
 import { deriveServerKey, unwrapKey } from "./crypto.js";
 
@@ -164,8 +163,15 @@ router.delete("/threads/:threadId", async (req, res) => {
 // ── Get messages for a thread ──────────────────────────────────
 router.get("/threads/:threadId/messages", async (req, res) => {
   try {
-    const vaultKey = await getUserVaultKey(Number(req.jwtUser.sub));
-    const messages = await getChatMessages(Number(req.params.threadId), vaultKey);
+    const userId = Number(req.jwtUser.sub);
+    const threadId = Number(req.params.threadId);
+    // Ownership check: ensure the thread belongs to the requesting user
+    const thread = await getThreadById(threadId);
+    if (!thread || thread.user_id !== userId) {
+      return res.status(404).json({ error: "Thread not found" });
+    }
+    const vaultKey = await getUserVaultKey(userId);
+    const messages = await getChatMessages(threadId, vaultKey);
     // Return in the same format the frontend expects
     const data = messages.map(m => ({
       role: m.role,
@@ -262,6 +268,20 @@ router.post("/threads/:threadId/messages", async (req, res) => {
   const correlationId = span?.spanContext()?.traceId || randomUUID();
   res.setHeader("X-Trace-ID", correlationId);
 
+  const threadId = Number(req.params.threadId);
+  const userId = Number(req.jwtUser.sub);
+
+  // Ownership check: ensure the thread belongs to the requesting user (before any other processing)
+  try {
+    const thread = await getThreadById(threadId);
+    if (!thread || thread.user_id !== userId) {
+      return res.status(404).json({ error: "Thread not found" });
+    }
+  } catch (err) {
+    logger.error("Thread ownership check failed", { error: err.message });
+    return res.status(500).json({ error: "Failed to validate thread", correlationId });
+  }
+
   if (!FOUNDRY_ENDPOINT || !FOUNDRY_AGENT_NAME) {
     return res.status(503).json({ error: "AI service not configured", correlationId });
   }
@@ -270,9 +290,6 @@ router.post("/threads/:threadId/messages", async (req, res) => {
   if (!content) {
     return res.status(400).json({ error: "content is required", correlationId });
   }
-
-  const threadId = Number(req.params.threadId);
-  const userId = Number(req.jwtUser.sub);
 
   try {
     // 0. Unwrap user's vault key (null if encryption not configured)
@@ -290,7 +307,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
       return {
         input: inputData,
         stream: true,
-        store: true,
+        store: false,
         max_output_tokens: 16384,
         agent_reference: {
           name: FOUNDRY_AGENT_NAME,
@@ -494,14 +511,11 @@ router.post("/threads/:threadId/messages", async (req, res) => {
       let currentInput = input;
       let attempt = 0;
 
-      // Chain to previous Foundry response for OAuth state persistence
-      const prevResponseId = await getThreadLastResponseId(threadId);
-      logger.info("Chat request", { threadId, hasPreviousResponse: !!prevResponseId, prevResponseId: prevResponseId || "none" });
+      logger.info("Chat request", { threadId });
 
       for (attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         const label = attempt === 0 ? "main" : `retry#${attempt}`;
-        const extraOpts = prevResponseId ? { previous_response_id: prevResponseId } : {};
-        const body = buildResponseBody(currentInput, extraOpts);
+        const body = buildResponseBody(currentInput);
 
         const runRes = await foundryFetch("/responses", {
           method: "POST",
@@ -534,12 +548,6 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         // OAuth consent requested — not a failure, user needs to authorize
         if (result.oauthConsentUrl) {
           logger.info("OAuth consent flow — stopping retries", { attempt: attempt + 1 });
-          // Save response ID so the next message chains to this consent response
-          if (result.responseId) {
-            updateThreadLastResponseId(threadId, result.responseId).catch(err =>
-              logger.error("Failed to save last_response_id after consent", { error: err.message }),
-            );
-          }
           break;
         }
 
@@ -646,12 +654,6 @@ router.post("/threads/:threadId/messages", async (req, res) => {
         }
 
         agentSpan.setAttributes({ attempt: attempt + 1, continuations: continuationRound });
-        // Persist last response ID for OAuth state chaining across messages
-        if (responseId) {
-          updateThreadLastResponseId(threadId, responseId).catch(err =>
-            logger.error("Failed to save last_response_id", { error: err.message }),
-          );
-        }
         // If we reached here without failure, we're done
         if (result.status !== "failed") break;
       }
