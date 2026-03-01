@@ -1,9 +1,9 @@
 // SunnieAI chat proxy — forwards chat requests to Azure AI Foundry Agent Service.
 // Supports two modes:
-//   1. Agent SDK mode (FOUNDRY_MCP_CONNECTION_ID set) — uses @azure/ai-agents SDK
-//      with a Foundry-hosted agent + OAuth identity passthrough for MCP tools.
-//   2. Legacy streaming proxy mode — manual SSE proxy to Foundry Responses API
-//      with inline MCP tool headers (fallback when no connection ID).
+//   1. Agent mode (FOUNDRY_MCP_CONNECTION_ID set) — uses Foundry Responses API
+//      with agent_reference (agent has MCP tools with OAuth identity passthrough).
+//   2. Inline tools mode (fallback) — sends per-request MCP tool config with
+//      user JWT in headers (legacy, for when no agent connection is configured).
 // Manages conversation history locally with rolling summarization.
 import { Router } from "express";
 import { readFileSync } from "node:fs";
@@ -20,7 +20,6 @@ import {
   getWrappedVaultKey,
 } from "./db.js";
 import { deriveServerKey, unwrapKey } from "./crypto.js";
-import { sendAgentMessage } from "./foundry-sdk.js";
 
 const router = Router();
 const tracer = trace.getTracer("chat");
@@ -287,98 +286,6 @@ async function maybeSummarize(threadId, vaultKey = null) {
   }
 }
 
-// ── Agent SDK handler (new path using @azure/ai-agents) ────────
-async function handleAgentSdkMessage(req, res, { threadId, userId, content, correlationId }) {
-  try {
-    const vaultKey = await getUserVaultKey(userId);
-    const input = await buildInput(threadId, content, vaultKey);
-    await addChatMessage(threadId, "user", content, vaultKey);
-
-    // Set up SSE
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-
-    const heartbeat = setInterval(() => {
-      try { res.write(":heartbeat\n\n"); } catch { /* client gone */ }
-    }, 15_000);
-
-    const abortController = new AbortController();
-    const wallClockTimeout = setTimeout(() => abortController.abort(), 240_000);
-
-    let assistantText = "";
-
-    try {
-      const result = await sendAgentMessage({
-        agentId: config.foundryAgentId,
-        messages: input,
-        instructions: getAgentInstructions(),
-        signal: abortController.signal,
-        onDelta(text) {
-          assistantText += text;
-          try {
-            res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: text })}\n\n`);
-          } catch { /* client gone */ }
-        },
-        onEvent(event) {
-          // Forward run status events so frontend knows agent is working
-          if (event.event?.startsWith("thread.run.") && !event.event.includes("step")) {
-            try {
-              res.write(`data: ${JSON.stringify({ type: event.event })}\n\n`);
-            } catch { /* client gone */ }
-          }
-        },
-      });
-
-      if (result.status === "failed" || result.status === "error") {
-        const errMsg = "\n\n⚠️ I had trouble completing that request. Could you try rephrasing or breaking it into smaller questions?";
-        assistantText += errMsg;
-        res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
-        res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
-      } else if (result.status === "expired") {
-        const errMsg = "\n\n⚠️ The request timed out. Please try again.";
-        assistantText += errMsg;
-        res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
-        res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
-      } else if (result.status === "requires_action") {
-        // OAuth consent flow — agent needs user to authenticate with MCP server
-        const errMsg = "\n\n🔐 I need permission to access your financial data. Please log in again and try your question.";
-        assistantText += errMsg;
-        res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
-      }
-
-      // Send completion event
-      res.write(`data: ${JSON.stringify({ type: "response.completed", response: { status: result.status || "completed" } })}\n\n`);
-    } catch (err) {
-      logger.error("Agent SDK stream error", { error: err.message, correlationId });
-      const errMsg = "\n\n⚠️ I encountered an unexpected error. Please try again.";
-      assistantText += errMsg;
-      try {
-        res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
-        res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
-      } catch { /* client gone */ }
-    } finally {
-      clearInterval(heartbeat);
-      clearTimeout(wallClockTimeout);
-      res.end();
-    }
-
-    // Store assistant response and trigger summarization
-    if (assistantText) {
-      addChatMessage(threadId, "assistant", assistantText, vaultKey).catch(err =>
-        logger.error("Failed to store assistant message", { error: err.message }),
-      );
-      maybeSummarize(threadId, vaultKey).catch(() => {});
-    }
-  } catch (err) {
-    logger.error("Agent SDK message error", { error: err.message, correlationId });
-    if (!res.headersSent) {
-      res.status(500).json({ error: "Failed to process message", correlationId });
-    }
-  }
-}
-
 // ── Send message and run agent (streaming) ─────────────────────
 router.post("/threads/:threadId/messages", async (req, res) => {
   // Extract OTel traceId for error correlation
@@ -398,14 +305,6 @@ router.post("/threads/:threadId/messages", async (req, res) => {
   const threadId = Number(req.params.threadId);
   const userId = Number(req.jwtUser.sub);
 
-  // ── Agent SDK path (when FOUNDRY_MCP_CONNECTION_ID is set) ─────
-  if (config.foundryMcpConnectionId && config.foundryAgentId) {
-    return handleAgentSdkMessage(req, res, {
-      threadId, userId, content, correlationId,
-    });
-  }
-
-  // ── Legacy streaming proxy path (fallback) ─────────────────────
   try {
     // 0. Unwrap user's vault key (null if encryption not configured)
     const vaultKey = await getUserVaultKey(userId);
@@ -419,9 +318,12 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     // 3. Create response (streaming) via Responses API
     const userJwt = req.cookies.access_token;
 
-    // Build MCP tools config once — reused across retries/continuations
+    // When FOUNDRY_MCP_CONNECTION_ID is set, the Foundry agent has MCP tools
+    // configured server-side with OAuth identity passthrough — no inline tools needed.
+    // Otherwise, fall back to per-request inline MCP tools with user JWT.
+    const useAgentReference = !!(config.foundryMcpConnectionId && FOUNDRY_AGENT_NAME);
     const mcpTools = [];
-    if (MCP_SERVER_URL && userJwt) {
+    if (!useAgentReference && MCP_SERVER_URL && userJwt) {
       mcpTools.push({
         type: "mcp",
         server_label: "actual-budget-mcp",
@@ -434,21 +336,24 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     function buildResponseBody(inputData, extraOpts = {}) {
       const body = {
         input: inputData,
-        model: "gpt-5.2-chat",
-        instructions: getAgentInstructions(),
         stream: true,
         store: false,
         max_output_tokens: 16384,
         ...extraOpts,
       };
-      if (mcpTools.length > 0) {
-        body.tools = mcpTools;
-      } else if (FOUNDRY_AGENT_NAME) {
+      if (useAgentReference) {
+        // New Foundry experience: agent has model, instructions, and MCP tools
         body.agent_reference = {
           name: FOUNDRY_AGENT_NAME,
-          version: "1",
           type: "agent_reference",
         };
+      } else {
+        // Inline mode: specify model + instructions + tools directly
+        body.model = "gpt-5.2-chat";
+        body.instructions = getAgentInstructions();
+        if (mcpTools.length > 0) {
+          body.tools = mcpTools;
+        }
       }
       return body;
     }

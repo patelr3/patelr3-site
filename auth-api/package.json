@@ -17,7 +17,6 @@
     "supertest": "^7.2.2"
   },
   "dependencies": {
-    "@azure/ai-agents": "^1.1.0",
     "@azure/identity": "^4.13.0",
     "@azure/monitor-opentelemetry-exporter": "^1.0.0-beta.30",
     "@opentelemetry/api": "^1.9.0",
