@@ -352,6 +352,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
       let output = [];
       let lastError = null;
       let textChunk = "";
+      let oauthConsentSent = false;
 
       while (true) {
         let result;
@@ -425,11 +426,13 @@ router.post("/threads/:threadId/messages", async (req, res) => {
               streamSpan.setStatus({ code: SpanStatusCode.ERROR, message: "response.failed" });
             }
 
-            // Detect OAuth consent request from Foundry
-            if (event.type === "response.oauth_consent_requested") {
+            // Detect OAuth consent request from Foundry (send at most once per response)
+            if (event.type === "response.oauth_consent_requested" && !oauthConsentSent) {
               const consentUrl = event.consent_link || event.authorization_url || event.url || event.item?.consent_link || event.item?.authorization_url || event.item?.url || "";
               if (consentUrl) {
                 logger.info("OAuth consent requested", { label, url: consentUrl });
+                res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: consentUrl })}\n\n`);
+                oauthConsentSent = true;
                 res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: consentUrl })}\n\n`);
               } else {
                 logger.warn("OAuth consent event with no URL", { label, eventKeys: Object.keys(event).join(",") });
@@ -437,11 +440,12 @@ router.post("/threads/:threadId/messages", async (req, res) => {
             }
 
             // Also detect oauth_consent_request in output_item.added events
-            if (event.type === "response.output_item.added" && event.item?.type === "oauth_consent_request") {
+            if (event.type === "response.output_item.added" && event.item?.type === "oauth_consent_request" && !oauthConsentSent) {
               const consentUrl = event.item.consent_link || event.item.authorization_url || event.item.url || "";
               if (consentUrl) {
                 logger.info("OAuth consent from output item", { label, url: consentUrl });
                 res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: consentUrl })}\n\n`);
+                oauthConsentSent = true;
               }
             }
 
@@ -488,14 +492,18 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
       // Check output items for oauth_consent_request (may arrive without the SSE event)
       let oauthConsentUrl = null;
-      for (const item of output) {
-        if (item.type === "oauth_consent_request") {
-          oauthConsentUrl = item.consent_link || item.authorization_url || item.url || "";
-          if (oauthConsentUrl) {
-            logger.info("OAuth consent found in output", { label, url: oauthConsentUrl });
-            res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: oauthConsentUrl })}\n\n`);
-          } else {
-            logger.warn("OAuth consent output item with no URL", { label, itemKeys: Object.keys(item).join(",") });
+      if (!oauthConsentSent) {
+        for (const item of output) {
+          if (item.type === "oauth_consent_request") {
+            oauthConsentUrl = item.consent_link || item.authorization_url || item.url || "";
+            if (oauthConsentUrl) {
+              logger.info("OAuth consent found in output", { label, url: oauthConsentUrl });
+              res.write(`data: ${JSON.stringify({ type: "oauth_consent", url: oauthConsentUrl })}\n\n`);
+              oauthConsentSent = true;
+              break;
+            } else {
+              logger.warn("OAuth consent output item with no URL", { label, itemKeys: Object.keys(item).join(",") });
+            }
           }
         }
       }

@@ -229,6 +229,7 @@ export default function SunnieAI({ user }) {
       const decoder = new TextDecoder();
       let buffer = "";
       let assistantText = "";
+      let oauthHandled = false;
       const STREAM_TIMEOUT_MS = 300_000;
 
       while (true) {
@@ -270,6 +271,9 @@ export default function SunnieAI({ user }) {
               }
               // Handle OAuth consent request — open popup and auto-retry
               if (event.type === "oauth_consent" && event.url) {
+                // Guard: only handle the first oauth_consent event per stream
+                if (oauthHandled) continue;
+                oauthHandled = true;
                 const consentMsg =
                   "🔐 Authorizing SunnieAI to access your budget data…\n\n" +
                   "A sign-in window should have opened. If not, [click here to authorize](" + event.url + ").\n\n" +
@@ -300,7 +304,7 @@ export default function SunnieAI({ user }) {
                           };
                           return updated;
                         });
-                        // Schedule retry after current stream finishes
+                        // Schedule single retry after a short delay
                         setTimeout(() => {
                           setInput(userMsg);
                           // Use a ref-like approach: set input and trigger send
@@ -366,7 +370,7 @@ export default function SunnieAI({ user }) {
                             setAgentStatus(null);
                           };
                           retryFn();
-                        }, 500);
+                        }, 2000);
                       }
                     }, 1000);
                   }
