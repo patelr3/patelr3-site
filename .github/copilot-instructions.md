@@ -10,6 +10,7 @@
 |-------|------|---------|
 | **Production Investigator & Observability** | `.github/agents/production-investigator.agent.md` | Diagnosing production incidents, root cause analysis (READ-ONLY for RCA); OpenTelemetry, App Insights, structured logging, tracing (CAN make changes) |
 | **Production Deployment** | `.github/agents/production-deployment.agent.md` | CI/CD pipelines, GitHub Actions, Bicep/IaC, Docker, ACR/ACA deployments, Azure infrastructure, nginx routing |
+| **AI Deployments & MCP** | `.github/agents/ai-deployments.agent.md` | Microsoft Foundry agents, MCP server configuration, Foundry Responses API, agent versioning, MCP tool connections, OAuth identity passthrough |
 | **Security & Auth** | `.github/agents/security-auth.agent.md` | OAuth, JWT, RBAC, OIDC IdP, encryption, cookie security, AKV secrets, managed identity, auth middleware |
 | **Frontend UI** | `.github/agents/frontend-ui.agent.md` | React components, pages, styling, Vite config, frontend nginx, API integration, UX |
 
@@ -22,6 +23,9 @@
    - "Why is prod returning 502?" → **Production Investigator & Observability**
    - "Add tracing to a service" → **Production Investigator & Observability**
    - "Update the logger" → **Production Investigator & Observability**
+   - "Update the Foundry agent" → **AI Deployments & MCP**
+   - "Add a tool to the MCP server" → **AI Deployments & MCP**
+   - "Configure OAuth for MCP" → **AI Deployments & MCP**
 
 2. **Cross-domain tasks** → Break into subtasks and delegate each part.
    - "Add a new protected endpoint" → **Security & Auth** (auth middleware + backend) + **Frontend UI** (page + API call) + **Production Deployment** (if new service/container needed)
@@ -103,7 +107,8 @@ When making code changes to any service (frontend, auth-api, hello-world, nginx,
 - Environment variables come from `.env` (see `.env.example` for the template).
 - auth-api proxies deployment requests to the finance-api in patelr3/sunniebudget.
 - auth-api also acts as an OIDC Identity Provider for ActualBudget instances (wraps Google OAuth).
-- **SunnieAI** (AI chat) is powered by Azure AI Foundry Agent Service. Auth-api proxies to Foundry using managed identity + `Cognitive Services User` RBAC. Requires `FOUNDRY_PROJECT_ENDPOINT` and `FOUNDRY_AGENT_ID` env vars (from AKV). See `docs/foundry-setup.md` for details.
+- **SunnieAI** (AI chat) uses the Microsoft Foundry (new experience) Responses API with `agent_reference`. The `sunnieai` agent is defined in Foundry with MCP tools configured server-side. When `FOUNDRY_MCP_CONNECTION_ID` is set, auth-api sends requests via `agent_reference` (agent handles model, instructions, and MCP tools); otherwise, falls back to inline MCP tools with per-request JWT headers. See `docs/foundry-agent-migration.md` and `docs/foundry-setup.md` for details.
+  - **Key Foundry docs:** [Quickstart](https://learn.microsoft.com/en-us/azure/foundry/quickstarts/get-started-code), [Migration guide](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/migrate), [Hosted agents](https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/hosted-agents)
 
 ## Secrets Management (AKV References)
 
@@ -121,7 +126,9 @@ All ACA secrets use Key Vault references (`keyVaultUrl` + user-assigned managed 
 | `jwt-secret` | auth-api, hello-world, hello-world-restricted, mcp-server |
 | `database-url` | auth-api |
 | `finance-api-key` | auth-api, mcp-server |
-| `foundry-project-endpoint`, `foundry-agent-id` | auth-api |
+| `foundry-project-endpoint`, `foundry-agent-name` | auth-api |
+| `foundry-mcp-connection-id` | auth-api |
+| `oidc-foundry-client-secret` | auth-api |
 | `chat-encryption-key` | auth-api |
 | `postgres-password` | postgres (Bicep param) |
 
