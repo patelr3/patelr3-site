@@ -31,7 +31,15 @@
    - Reviewing and integrating work from multiple agents
    - Tasks not covered by any specialist (e.g., README updates, general refactoring, test infrastructure)
 
-4. **After incident resolution** → Always update the **Production Investigator** agent with new root causes or diagnostic steps discovered.
+4. **Testing & validation** → You own this. After any agent makes changes, you are responsible for running tests and verifying the changes work.
+   - Run unit tests for affected services: `npm test --prefix auth-api`, `npm test --prefix hello-world`, `npm test --prefix hello-world-restricted`, `npm test --prefix sunniebudget/mcp-server`
+   - Rebuild and restart the local stack: `docker compose build && docker compose down && docker compose up -d`
+   - Verify endpoints: `curl -s -o /dev/null -w '%{http_code}' http://localhost` (200), `/api/auth/me` (401), `/api/hello/` (401)
+   - Run integration tests if cross-service behavior changed: `bash tests/integration.sh`
+   - If tests fail, route the failure back to the responsible specialist agent for fixing.
+   - Do not push to main until all tests pass and the local stack is verified.
+
+5. **After incident resolution** → Always update the **Production Investigator** agent with new root causes or diagnostic steps discovered.
 
 ## Documentation
 
