@@ -293,6 +293,10 @@ export default function SunnieAI({ user }) {
                   setAgentStatus(label ? `Using ${label}…` : "Looking up data…");
                 } else if (event.type === "response.in_progress") {
                   setAgentStatus("Thinking…");
+                } else if (event.type === "thread.run.in_progress") {
+                  setAgentStatus("Thinking…");
+                } else if (event.type === "thread.run.requires_action") {
+                  setAgentStatus("Authenticating…");
                 }
                 // Don't clear on response.completed — multi-step responses
                 // send this between steps, not just at the end

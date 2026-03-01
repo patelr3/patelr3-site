@@ -114,6 +114,7 @@ The script will print the agent name and ID after creation. These are stored in 
 | Variable | Service | Source | Description |
 |----------|---------|--------|-------------|
 | `OIDC_FOUNDRY_CLIENT_SECRET` | auth-api | AKV `oidc-foundry-client-secret` | Client secret for the `foundry-agent` OIDC client |
+| `FOUNDRY_MCP_CONNECTION_ID` | auth-api | AKV `foundry-mcp-connection-id` | Foundry project connection ID — enables Agent SDK path |
 | `OIDC_JWKS_URL` | mcp-server | Static value | JWKS endpoint for validating OIDC tokens (`https://www.arayosun.com/api/auth/oidc/jwks`) |
 
 ### Existing Variables (unchanged)
