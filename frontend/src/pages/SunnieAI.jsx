@@ -176,9 +176,10 @@ export default function SunnieAI({ user }) {
     let correlationId = null;
     const refSuffix = (id) => id ? `\n\n*Reference ID: \`${id}\`*` : "";
 
+    let wallTimeout;
     try {
       const controller = new AbortController();
-      const wallTimeout = setTimeout(() => controller.abort(), 240_000); // 4 min hard limit
+      wallTimeout = setTimeout(() => controller.abort(), 240_000); // 4 min hard limit
       let res;
       try {
         res = await fetch(`/api/auth/chat/threads/${threadId}/messages`, {
