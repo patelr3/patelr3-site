@@ -10,7 +10,7 @@
 |-------|------|---------|
 | **Production Investigator & Observability** | `.github/agents/production-investigator.agent.md` | Diagnosing production incidents, root cause analysis (READ-ONLY for RCA); OpenTelemetry, App Insights, structured logging, tracing (CAN make changes) |
 | **Production Deployment** | `.github/agents/production-deployment.agent.md` | CI/CD pipelines, GitHub Actions, Bicep/IaC, Docker, ACR/ACA deployments, Azure infrastructure, nginx routing |
-| **AI Deployments & MCP** | `.github/agents/ai-deployments.agent.md` | Microsoft Foundry agents, MCP server configuration, Foundry Responses API, agent versioning, MCP tool connections, OAuth identity passthrough |
+| **AI Deployments & MCP** | `.github/agents/ai-deployments.agent.md` | Microsoft Foundry agents, MCP server configuration, Foundry Responses API, chat streaming proxy (chat.js), agent versioning, MCP tool connections, OAuth identity passthrough |
 | **Security & Auth** | `.github/agents/security-auth.agent.md` | OAuth, JWT, RBAC, OIDC IdP, encryption, cookie security, AKV secrets, managed identity, auth middleware |
 | **Frontend UI** | `.github/agents/frontend-ui.agent.md` | React components, pages, styling, Vite config, frontend nginx, API integration, UX |
 
@@ -26,6 +26,7 @@
    - "Update the Foundry agent" → **AI Deployments & MCP**
    - "Add a tool to the MCP server" → **AI Deployments & MCP**
    - "Configure OAuth for MCP" → **AI Deployments & MCP**
+   - "Fix the chat streaming" → **AI Deployments & MCP**
 
 2. **Cross-domain tasks** → Break into subtasks and delegate each part.
    - "Add a new protected endpoint" → **Security & Auth** (auth middleware + backend) + **Frontend UI** (page + API call) + **Production Deployment** (if new service/container needed)
