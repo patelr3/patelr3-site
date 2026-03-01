@@ -264,7 +264,7 @@ describe("Chat API", () => {
       expect(res.text).toContain("Foundry API error");
     });
 
-    it("passes previousResponseId when provided", async () => {
+    it("uses previous_response_id (not conversation) when previousResponseId provided", async () => {
       const token = mockFirebaseAuth(testUser);
 
       const events = [
@@ -285,12 +285,9 @@ describe("Chat API", () => {
         .set("Authorization", `Bearer ${token}`)
         .send({ message: "Continue", previousResponseId: "resp_456" });
 
-      expect(mockResponsesCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          previous_response_id: "resp_456",
-        }),
-        expect.anything()
-      );
+      const [body] = mockResponsesCreate.mock.calls[0];
+      expect(body.previous_response_id).toBe("resp_456");
+      expect(body).not.toHaveProperty("conversation");
     });
 
     it("passes agent_reference via options.body (not extra_body)", async () => {
@@ -318,6 +315,8 @@ describe("Chat API", () => {
       const [body, options] = mockResponsesCreate.mock.calls[0];
       expect(body).not.toHaveProperty("extra_body");
       expect(body).toHaveProperty("model", "gpt-4.1");
+      expect(body).toHaveProperty("conversation", "conv_123");
+      expect(body).not.toHaveProperty("previous_response_id");
       expect(options).toEqual({
         body: {
           agent_reference: { name: "test-agent", type: "agent_reference" },

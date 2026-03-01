@@ -91,11 +91,15 @@ router.post("/chat/conversations/:id/messages", async (req, res) => {
 
       const requestBody = {
         input: message,
-        conversation: conversationId,
         stream: true,
         store: true,
-        ...(previousResponseId && { previous_response_id: previousResponseId }),
       };
+      // Use conversation for the first message; subsequent messages chain via previous_response_id
+      if (previousResponseId) {
+        requestBody.previous_response_id = previousResponseId;
+      } else {
+        requestBody.conversation = conversationId;
+      }
 
       // Use agent_reference — agent has model, instructions, and MCP tools configured server-side.
       // The @azure/ai-projects SDK merges options.body into the request body (see overwriteOpenAIClient.js).
