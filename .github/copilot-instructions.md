@@ -80,7 +80,8 @@ When making code changes to any service (frontend, auth-api, hello-world, nginx,
    - MCP server tests: `npm test --prefix sunniebudget/mcp-server`
 6. **Fix any issues** — If local tests fail, debug and fix before proceeding.
 7. **Only then push** — Once the local deployment is confirmed working, commit and push to `main`.
-8. **Leave the stack running** — Do not tear down after pushing.
+8. **Monitor CI/CD** — After pushing, watch the CI and Deploy GitHub Actions workflows to confirm they succeed. Use the `github-mcp-server-actions_list` tool to list workflow runs for the push, then `github-mcp-server-actions_get` or `github-mcp-server-get_job_logs` to check status and investigate failures. Do not consider the task complete until the workflows pass. If a workflow fails, retrieve the failed job logs and fix the issue.
+9. **Leave the stack running** — Do not tear down after pushing.
 
 **Do not push to main or trigger the GitHub Action unless the local deployment works as expected.**
 
