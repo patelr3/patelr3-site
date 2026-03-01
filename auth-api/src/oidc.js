@@ -3,7 +3,7 @@
 import { Router } from "express";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
-import { exportJWK, SignJWT, generateKeyPair } from "jose";
+import { exportJWK, importJWK, SignJWT, generateKeyPair } from "jose";
 import config from "./config.js";
 import logger from "./logger.js";
 import {
@@ -21,10 +21,23 @@ const KID = "oidc-signing-key-1";
 
 async function ensureKeys() {
   if (signingKey) return;
-  const pair = await generateKeyPair("RS256");
-  signingKey = pair.privateKey;
-  const jwk = await exportJWK(pair.publicKey);
-  publicJwk = { ...jwk, kid: KID, alg: "RS256", use: "sig" };
+
+  if (config.oidcSigningKeyJwk) {
+    // Persistent key from AKV — survives restarts/deployments
+    const privateJwk = JSON.parse(config.oidcSigningKeyJwk);
+    signingKey = await importJWK(privateJwk, "RS256");
+    // Derive public JWK by stripping private fields
+    const { d, p, q, dp, dq, qi, ...pub } = privateJwk;
+    publicJwk = { ...pub, kid: KID, alg: "RS256", use: "sig" };
+    logger.info("OIDC signing key loaded from AKV");
+  } else {
+    // Ephemeral key for local dev
+    const pair = await generateKeyPair("RS256");
+    signingKey = pair.privateKey;
+    const jwk = await exportJWK(pair.publicKey);
+    publicJwk = { ...jwk, kid: KID, alg: "RS256", use: "sig" };
+    logger.info("OIDC signing key generated (ephemeral — local dev)");
+  }
 }
 
 function issuerUrl() {

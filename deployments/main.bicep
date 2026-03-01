@@ -124,6 +124,7 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
       { name: 'CHAT_ENCRYPTION_KEY', secretRef: 'chat-encryption-key' }
       { name: 'OIDC_FOUNDRY_CLIENT_SECRET', secretRef: 'oidc-foundry-client-secret' }
+      { name: 'OIDC_SIGNING_KEY_JWK', secretRef: 'oidc-signing-key-jwk' }
       { name: 'FOUNDRY_MCP_CONNECTION_ID', secretRef: 'foundry-mcp-connection-id' }
     ]
     secrets: [
@@ -138,6 +139,7 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'appinsights-connection-string', keyVaultUrl: '${kvSecretsUrl}/appinsights-connection-string', identity: kvReaderIdentity.id }
       { name: 'chat-encryption-key', keyVaultUrl: '${kvSecretsUrl}/chat-encryption-key', identity: kvReaderIdentity.id }
       { name: 'oidc-foundry-client-secret', keyVaultUrl: '${kvSecretsUrl}/oidc-foundry-client-secret', identity: kvReaderIdentity.id }
+      { name: 'oidc-signing-key-jwk', keyVaultUrl: '${kvSecretsUrl}/oidc-signing-key-jwk', identity: kvReaderIdentity.id }
       { name: 'foundry-mcp-connection-id', keyVaultUrl: '${kvSecretsUrl}/foundry-mcp-connection-id', identity: kvReaderIdentity.id }
     ]
   }

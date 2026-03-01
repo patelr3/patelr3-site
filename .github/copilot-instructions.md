@@ -130,6 +130,7 @@ All ACA secrets use Key Vault references (`keyVaultUrl` + user-assigned managed 
 | `foundry-project-endpoint`, `foundry-agent-name` | auth-api |
 | `foundry-mcp-connection-id` | auth-api |
 | `oidc-foundry-client-secret` | auth-api |
+| `oidc-signing-key-jwk` | auth-api |
 | `chat-encryption-key` | auth-api |
 | `postgres-password` | postgres (Bicep param) |
 
