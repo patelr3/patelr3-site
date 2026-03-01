@@ -456,7 +456,22 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
     // 3. Get SDK client and Foundry conversation ID for per-user OAuth isolation
     const client = getOpenAIClient();
-    const foundryConversationId = await getThreadFoundryConversationId(threadId);
+    let foundryConversationId = await getThreadFoundryConversationId(threadId);
+
+    // Lazily create conversation if missing (fixes race: client sends message before
+    // POST /threads finishes creating the Foundry conversation)
+    if (!foundryConversationId && client) {
+      try {
+        const conv = await client.conversations.create();
+        if (conv?.id) {
+          foundryConversationId = conv.id;
+          await updateThreadFoundryConversationId(threadId, conv.id);
+          logger.info("Lazily created Foundry conversation", { threadId, conversationId: conv.id });
+        }
+      } catch (err) {
+        logger.error("Failed to create Foundry conversation", { threadId, error: err.message });
+      }
+    }
 
     function buildCreateParams(inputData, extraOpts = {}) {
       const params = {
