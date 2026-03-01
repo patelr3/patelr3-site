@@ -31,6 +31,14 @@ export async function initDb() {
     END $$
   `);
 
+  // Add debug_mode if missing (existing DBs)
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS debug_mode BOOLEAN DEFAULT false;
+    EXCEPTION WHEN others THEN NULL;
+    END $$
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS services (
       id              SERIAL PRIMARY KEY,
@@ -379,6 +387,19 @@ export async function touchLastLogin(userId) {
 export async function deleteUser(userId) {
   const { rowCount } = await pool.query("DELETE FROM users WHERE id = $1", [userId]);
   return rowCount > 0;
+}
+
+export async function getDebugMode(userId) {
+  const { rows } = await pool.query("SELECT debug_mode FROM users WHERE id = $1", [userId]);
+  return rows[0]?.debug_mode ?? false;
+}
+
+export async function setDebugMode(userId, enabled) {
+  const { rows } = await pool.query(
+    `UPDATE users SET debug_mode = $1, updated_at = NOW() WHERE id = $2 RETURNING debug_mode`,
+    [enabled, userId]
+  );
+  return rows[0]?.debug_mode ?? false;
 }
 
 // ── Password reset token queries ───────────────────────────────

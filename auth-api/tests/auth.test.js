@@ -44,6 +44,8 @@ const mockDb = {
   getThreadSummary: jest.fn(),
   storeVaultKey: jest.fn(),
   getWrappedVaultKey: jest.fn(),
+  getDebugMode: jest.fn().mockResolvedValue(false),
+  setDebugMode: jest.fn().mockResolvedValue(false),
 };
 
 jest.unstable_mockModule("../src/db.js", () => mockDb);
@@ -435,5 +437,90 @@ describe("DELETE /auth/users/:id", () => {
       .set("Cookie", `access_token=${token}`);
 
     expect(res.status).toBe(404);
+  });
+});
+
+// ── GET /auth/account includes debugMode ───────────────────────
+
+describe("GET /auth/account debugMode", () => {
+  it("returns debugMode false by default", async () => {
+    mockDb.findUserById.mockResolvedValue({
+      id: 1, email: "test@test.com", display_name: "Test",
+      role: "user", password_hash: null, google_id: "g123",
+      debug_mode: false, created_at: "2024-01-01",
+    });
+
+    const token = makeToken();
+    const res = await request(app)
+      .get("/auth/account")
+      .set("Cookie", `access_token=${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.debugMode).toBe(false);
+  });
+
+  it("returns debugMode true when enabled", async () => {
+    mockDb.findUserById.mockResolvedValue({
+      id: 1, email: "test@test.com", display_name: "Test",
+      role: "user", password_hash: null, google_id: "g123",
+      debug_mode: true, created_at: "2024-01-01",
+    });
+
+    const token = makeToken();
+    const res = await request(app)
+      .get("/auth/account")
+      .set("Cookie", `access_token=${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.debugMode).toBe(true);
+  });
+});
+
+// ── PATCH /auth/debug-mode ─────────────────────────────────────
+
+describe("PATCH /auth/debug-mode", () => {
+  it("returns 401 without auth", async () => {
+    const res = await request(app)
+      .patch("/auth/debug-mode")
+      .send({ enabled: true });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 400 when enabled is not boolean", async () => {
+    const token = makeToken();
+    const res = await request(app)
+      .patch("/auth/debug-mode")
+      .set("Cookie", `access_token=${token}`)
+      .send({ enabled: "yes" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/boolean/);
+  });
+
+  it("enables debug mode", async () => {
+    mockDb.setDebugMode.mockResolvedValue(true);
+
+    const token = makeToken();
+    const res = await request(app)
+      .patch("/auth/debug-mode")
+      .set("Cookie", `access_token=${token}`)
+      .send({ enabled: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.debugMode).toBe(true);
+    expect(mockDb.setDebugMode).toHaveBeenCalledWith(1, true);
+  });
+
+  it("disables debug mode", async () => {
+    mockDb.setDebugMode.mockResolvedValue(false);
+
+    const token = makeToken();
+    const res = await request(app)
+      .patch("/auth/debug-mode")
+      .set("Cookie", `access_token=${token}`)
+      .send({ enabled: false });
+
+    expect(res.status).toBe(200);
+    expect(res.body.debugMode).toBe(false);
+    expect(mockDb.setDebugMode).toHaveBeenCalledWith(1, false);
   });
 });

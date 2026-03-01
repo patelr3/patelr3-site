@@ -21,6 +21,7 @@ const api = {
   // Account
   account: () => "/api/auth/account",
   changePassword: () => "/api/auth/change-password",
+  debugMode: () => "/api/auth/debug-mode",
   forgotPassword: () => "/api/auth/forgot-password",
   resetPassword: () => "/api/auth/reset-password",
 

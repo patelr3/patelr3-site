@@ -13,6 +13,7 @@ import {
   getUserAccess, grantAccess,
   createAccessRequest, listAccessRequests, updateAccessRequest, getUserPendingRequests,
   findUserById, listUsers, updateUserRole, updateUserPassword, touchLastLogin, deleteUser,
+  getDebugMode, setDebugMode,
   createResetToken, findResetToken, deleteResetToken,
   storeVaultKey, getWrappedVaultKey,
 } from "./db.js";
@@ -338,6 +339,7 @@ app.get("/auth/account", requireAuth, async (req, res) => {
       role: user.role,
       hasPassword: !!user.password_hash,
       isGoogleUser: !!user.google_id,
+      debugMode: !!user.debug_mode,
       createdAt: user.created_at,
     });
   } catch {
@@ -372,6 +374,19 @@ app.post("/auth/change-password", requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: "Failed to change password" });
+  }
+});
+
+app.patch("/auth/debug-mode", requireAuth, async (req, res) => {
+  const { enabled } = req.body;
+  if (typeof enabled !== "boolean") {
+    return res.status(400).json({ error: "enabled must be a boolean" });
+  }
+  try {
+    const debugMode = await setDebugMode(Number(req.jwtUser.sub), enabled);
+    res.json({ debugMode });
+  } catch {
+    res.status(500).json({ error: "Failed to update debug mode" });
   }
 });
 
