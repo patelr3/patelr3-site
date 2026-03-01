@@ -5,7 +5,8 @@ import { Router } from "express";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { trace, SpanStatusCode } from "./tracing.js";
+import { randomUUID } from "node:crypto";
+import { trace, context, SpanStatusCode } from "./tracing.js";
 import logger from "./logger.js";
 import config from "./config.js";
 import {
@@ -282,13 +283,18 @@ async function maybeSummarize(threadId, vaultKey = null) {
 
 // ── Send message and run agent (streaming) ─────────────────────
 router.post("/threads/:threadId/messages", async (req, res) => {
+  // Extract OTel traceId for error correlation
+  const span = trace.getSpan(context.active());
+  const correlationId = span?.spanContext()?.traceId || randomUUID();
+  res.setHeader("X-Trace-ID", correlationId);
+
   if (!FOUNDRY_ENDPOINT || !FOUNDRY_AGENT_NAME) {
-    return res.status(503).json({ error: "AI service not configured" });
+    return res.status(503).json({ error: "AI service not configured", correlationId });
   }
 
   const { content } = req.body;
   if (!content) {
-    return res.status(400).json({ error: "content is required" });
+    return res.status(400).json({ error: "content is required", correlationId });
   }
 
   const threadId = Number(req.params.threadId);
@@ -499,6 +505,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           if (!res.headersSent || res.getHeader("Content-Type") === "text/event-stream") {
             const errMsg = "\n\n⚠️ I encountered an error. Please try again.";
             assistantText += errMsg;
+            res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
             res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
           }
           agentSpan.setStatus({ code: SpanStatusCode.ERROR, message: `HTTP ${runRes.status}` });
@@ -520,6 +527,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           }
           const errMsg = "\n\n⚠️ I had trouble completing that request. Could you try rephrasing or breaking it into smaller questions?";
           assistantText += errMsg;
+          res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
           res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
           agentSpan.setStatus({ code: SpanStatusCode.ERROR, message: "max_retries_exceeded" });
           break;
@@ -592,7 +600,7 @@ router.post("/threads/:threadId/messages", async (req, res) => {
   } catch (err) {
     logger.error("Message/run error", { error: err.message });
     if (!res.headersSent) {
-      res.status(500).json({ error: "Failed to process message" });
+      res.status(500).json({ error: "Failed to process message", correlationId });
     }
   }
 });

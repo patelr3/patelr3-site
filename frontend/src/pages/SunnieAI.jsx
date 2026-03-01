@@ -173,6 +173,8 @@ export default function SunnieAI({ user }) {
     // Add placeholder for assistant response
     setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
     setAgentStatus("Thinking…");
+    let correlationId = null;
+    const refSuffix = (id) => id ? `\n\n*Reference ID: \`${id}\`*` : "";
 
     try {
       const res = await fetch(`/api/auth/chat/threads/${threadId}/messages`, {
@@ -187,11 +189,12 @@ export default function SunnieAI({ user }) {
 
       if (!res.ok) {
         const err = await res.json();
+        correlationId = err.correlationId || null;
         setMessages((prev) => {
           const updated = [...prev];
           updated[updated.length - 1] = {
             role: "assistant",
-            content: `Error: ${err.error || "Something went wrong"}`,
+            content: `Error: ${err.error || "Something went wrong"}${refSuffix(correlationId)}`,
           };
           return updated;
         });
@@ -216,7 +219,7 @@ export default function SunnieAI({ user }) {
         } catch {
           reader.cancel();
           if (!assistantText) {
-            assistantText = "Response timed out. Please try again.";
+            assistantText = "Response timed out. Please try again." + refSuffix(correlationId);
             setMessages((prev) => {
               const updated = [...prev];
               updated[updated.length - 1] = { role: "assistant", content: assistantText };
@@ -239,6 +242,10 @@ export default function SunnieAI({ user }) {
             if (data === "[DONE]") continue;
             try {
               const event = JSON.parse(data);
+              if (event.type === "error.correlation") {
+                correlationId = event.correlationId || null;
+                continue;
+              }
               // Extract text delta — new Responses API format + classic fallback
               const delta =
                 (event.type === "response.output_text.delta" && event.delta) ||
@@ -276,6 +283,19 @@ export default function SunnieAI({ user }) {
         }
       }
 
+      // Append correlation ID to streamed error messages
+      if (correlationId && assistantText) {
+        assistantText += refSuffix(correlationId);
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = {
+            role: "assistant",
+            content: assistantText,
+          };
+          return updated;
+        });
+      }
+
       // If no streaming text came through, fetch final messages
       if (!assistantText) {
         const msgRes = await fetch(
@@ -296,7 +316,7 @@ export default function SunnieAI({ user }) {
         const updated = [...prev];
         updated[updated.length - 1] = {
           role: "assistant",
-          content: "Connection error. Please try again.",
+          content: "Connection error. Please try again." + refSuffix(correlationId),
         };
         return updated;
       });
