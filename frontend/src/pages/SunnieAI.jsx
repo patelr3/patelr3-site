@@ -183,7 +183,7 @@ export default function SunnieAI() {
     <div className="page sunnieai">
       <div className="sunnieai-header">
         <div>
-          <h1>SunnieAI</h1>
+          <h1>☀️ SunnieAI</h1>
           <p className="sunnieai-subtitle">Your AI budget assistant</p>
         </div>
         <button className="sunnieai-new-btn" onClick={handleNewChat}>
@@ -202,7 +202,7 @@ export default function SunnieAI() {
           {messages.map((msg, i) => (
             <div key={i} className={`sunnieai-msg sunnieai-msg-${msg.role}`}>
               <span className="sunnieai-msg-avatar">
-                {msg.role === "user" ? "👤" : msg.role === "status" ? "⚙️" : "🤖"}
+                {msg.role === "user" ? "👤" : msg.role === "status" ? "⚙️" : "☀️"}
               </span>
               <div className="sunnieai-msg-content">{msg.content}</div>
             </div>

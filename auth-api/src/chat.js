@@ -90,7 +90,9 @@ router.post("/chat/conversations/:id/messages", async (req, res) => {
       const { openaiClient } = getClients();
 
       const requestBody = {
-        input: message,
+        input: !previousResponseId
+          ? `[Current date: ${new Date().toISOString().slice(0, 10)}]\n\n${message}`
+          : message,
         stream: true,
         store: true,
       };
