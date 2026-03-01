@@ -286,20 +286,11 @@ router.post("/threads/:threadId/messages", async (req, res) => {
     // 3. Create response (streaming) via Responses API
 
     function buildResponseBody(inputData, extraOpts = {}) {
-      const now = new Date();
-      const dateStr = now.toLocaleDateString("en-US", {
-        weekday: "long", year: "numeric", month: "long", day: "numeric",
-        timeZone: "America/New_York",
-      });
       return {
         input: inputData,
         stream: true,
         store: false,
         max_output_tokens: 16384,
-        instructions: [
-          `Today is ${dateStr}.`,
-          "IMPORTANT: All monetary amounts from Actual Budget tools are integers in CENTS (e.g. 150000 = $1,500.00). Always divide by 100 before displaying to the user. Negative = expense/outflow, positive = income/inflow.",
-        ].join(" "),
         agent_reference: {
           name: FOUNDRY_AGENT_NAME,
           type: "agent_reference",
