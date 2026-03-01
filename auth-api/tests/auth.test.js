@@ -37,6 +37,8 @@ const mockDb = {
   getChatMessageCount: jest.fn(),
   updateThreadSummary: jest.fn(),
   getThreadSummary: jest.fn(),
+  storeVaultKey: jest.fn(),
+  getWrappedVaultKey: jest.fn(),
 };
 
 jest.unstable_mockModule("../src/db.js", () => mockDb);

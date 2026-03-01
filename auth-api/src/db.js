@@ -1,6 +1,7 @@
 import pg from "pg";
 import bcrypt from "bcryptjs";
 import config from "./config.js";
+import { encrypt, decrypt, isEncrypted } from "./crypto.js";
 
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
@@ -146,6 +147,16 @@ export async function initDb() {
   // Add summary column if missing (migration for existing DBs)
   await pool.query(`
     ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS summary TEXT DEFAULT NULL
+  `);
+
+  // Per-user vault keys for chat encryption (Bitwarden-inspired)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_vault_keys (
+      user_id     INT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      wrapped_key TEXT NOT NULL,
+      key_type    VARCHAR(20) NOT NULL,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )
   `);
 
   // Seed a test user in local dev only (no AUTH_API_URL set)
@@ -393,6 +404,25 @@ export async function consumeOidcAuthCode(code) {
   return rows[0] || null;
 }
 
+// ── Vault key queries ──────────────────────────────────────────
+
+export async function storeVaultKey(userId, wrappedKey, keyType) {
+  await pool.query(
+    `INSERT INTO user_vault_keys (user_id, wrapped_key, key_type)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (user_id) DO UPDATE SET wrapped_key = $2, key_type = $3`,
+    [userId, wrappedKey, keyType]
+  );
+}
+
+export async function getWrappedVaultKey(userId) {
+  const { rows } = await pool.query(
+    `SELECT wrapped_key, key_type FROM user_vault_keys WHERE user_id = $1`,
+    [userId]
+  );
+  return rows[0] || null;
+}
+
 // ── Chat thread queries ────────────────────────────────────────
 
 export async function createThread(userId, title) {
@@ -448,11 +478,12 @@ export async function getThreadById(threadId) {
 
 // ── Chat message queries ───────────────────────────────────────
 
-export async function addChatMessage(threadId, role, content) {
+export async function addChatMessage(threadId, role, content, vaultKey = null) {
+  const stored = vaultKey ? encrypt(content, vaultKey) : content;
   const { rows } = await pool.query(
     `INSERT INTO chat_messages (thread_id, role, content)
      VALUES ($1, $2, $3) RETURNING *`,
-    [threadId, role, content]
+    [threadId, role, stored]
   );
   // Touch updated_at on the thread
   await pool.query(
@@ -462,12 +493,19 @@ export async function addChatMessage(threadId, role, content) {
   return rows[0];
 }
 
-export async function getChatMessages(threadId) {
+export async function getChatMessages(threadId, vaultKey = null) {
   const { rows } = await pool.query(
     `SELECT id, role, content, created_at FROM chat_messages
      WHERE thread_id = $1 ORDER BY created_at ASC`,
     [threadId]
   );
+  if (vaultKey) {
+    for (const row of rows) {
+      if (isEncrypted(row.content)) {
+        row.content = decrypt(row.content, vaultKey);
+      }
+    }
+  }
   return rows;
 }
 
@@ -479,19 +517,24 @@ export async function getChatMessageCount(threadId) {
   return rows[0].count;
 }
 
-export async function updateThreadSummary(threadId, summary) {
+export async function updateThreadSummary(threadId, summary, vaultKey = null) {
+  const stored = vaultKey ? encrypt(summary, vaultKey) : summary;
   await pool.query(
     `UPDATE chat_threads SET summary = $2, updated_at = NOW() WHERE id = $1`,
-    [threadId, summary]
+    [threadId, stored]
   );
 }
 
-export async function getThreadSummary(threadId) {
+export async function getThreadSummary(threadId, vaultKey = null) {
   const { rows } = await pool.query(
     `SELECT summary FROM chat_threads WHERE id = $1`,
     [threadId]
   );
-  return rows[0]?.summary || null;
+  const raw = rows[0]?.summary || null;
+  if (raw && vaultKey && isEncrypted(raw)) {
+    return decrypt(raw, vaultKey);
+  }
+  return raw;
 }
 
 export default pool;

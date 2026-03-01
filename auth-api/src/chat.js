@@ -12,7 +12,9 @@ import {
   createThread, getUserThreads, deleteThread,
   addChatMessage, getChatMessages, getChatMessageCount,
   updateThreadSummary, getThreadSummary,
+  getWrappedVaultKey,
 } from "./db.js";
+import { deriveServerKey, unwrapKey } from "./crypto.js";
 
 const router = Router();
 const tracer = trace.getTracer("chat");
@@ -57,6 +59,19 @@ const OPENAI_BASE = getOpenAIBaseUrl();
 // Summarization thresholds
 const SUMMARY_THRESHOLD = 10;  // summarize when > 10 messages
 const RECENT_MESSAGES_KEEP = 6; // keep last 6 messages verbatim
+
+/** Unwrap the user's vault key for chat encryption. Returns Buffer or null. */
+async function getUserVaultKey(userId) {
+  if (!config.chatEncryptionKey) return null;
+  try {
+    const vkRow = await getWrappedVaultKey(userId);
+    if (!vkRow) return null;
+    const wrappingKey = deriveServerKey(userId);
+    return unwrapKey(vkRow.wrapped_key, Buffer.from(wrappingKey));
+  } catch {
+    return null;
+  }
+}
 
 async function getAzureToken() {
   return tracer.startActiveSpan("chat.getAzureToken", async (span) => {
@@ -174,7 +189,8 @@ router.delete("/threads/:threadId", async (req, res) => {
 // ── Get messages for a thread ──────────────────────────────────
 router.get("/threads/:threadId/messages", async (req, res) => {
   try {
-    const messages = await getChatMessages(Number(req.params.threadId));
+    const vaultKey = await getUserVaultKey(Number(req.jwtUser.sub));
+    const messages = await getChatMessages(Number(req.params.threadId), vaultKey);
     // Return in the same format the frontend expects
     const data = messages.map(m => ({
       role: m.role,
@@ -188,9 +204,9 @@ router.get("/threads/:threadId/messages", async (req, res) => {
 });
 
 // Build the input array for the Responses API with summarization
-async function buildInput(threadId, newUserContent) {
-  const messages = await getChatMessages(threadId);
-  const summary = await getThreadSummary(threadId);
+async function buildInput(threadId, newUserContent, vaultKey = null) {
+  const messages = await getChatMessages(threadId, vaultKey);
+  const summary = await getThreadSummary(threadId, vaultKey);
   const input = [];
 
   if (summary && messages.length > RECENT_MESSAGES_KEEP) {
@@ -217,12 +233,12 @@ async function buildInput(threadId, newUserContent) {
 }
 
 // Generate a summary of older messages (background, non-blocking)
-async function maybeSummarize(threadId) {
+async function maybeSummarize(threadId, vaultKey = null) {
   try {
     const count = await getChatMessageCount(threadId);
     if (count <= SUMMARY_THRESHOLD) return;
 
-    const messages = await getChatMessages(threadId);
+    const messages = await getChatMessages(threadId, vaultKey);
     // Summarize all but the last RECENT_MESSAGES_KEEP messages
     const toSummarize = messages.slice(0, -RECENT_MESSAGES_KEEP);
     if (toSummarize.length < 4) return; // not enough to summarize
@@ -256,7 +272,7 @@ async function maybeSummarize(threadId) {
         data?.output_text ||
         "";
       if (summaryText) {
-        await updateThreadSummary(threadId, summaryText);
+        await updateThreadSummary(threadId, summaryText, vaultKey);
       }
     }
   } catch (err) {
@@ -276,13 +292,17 @@ router.post("/threads/:threadId/messages", async (req, res) => {
   }
 
   const threadId = Number(req.params.threadId);
+  const userId = Number(req.jwtUser.sub);
 
   try {
+    // 0. Unwrap user's vault key (null if encryption not configured)
+    const vaultKey = await getUserVaultKey(userId);
+
     // 1. Build input with summarization (BEFORE storing the new message)
-    const input = await buildInput(threadId, content);
+    const input = await buildInput(threadId, content, vaultKey);
 
     // 2. Store user message in DB
-    await addChatMessage(threadId, "user", content);
+    await addChatMessage(threadId, "user", content, vaultKey);
 
     // 3. Create response (streaming) via Responses API
     const userJwt = req.cookies.access_token;
@@ -563,11 +583,11 @@ router.post("/threads/:threadId/messages", async (req, res) => {
 
     // 5. Store assistant response in DB (async, non-blocking)
     if (assistantText) {
-      addChatMessage(threadId, "assistant", assistantText).catch(err =>
+      addChatMessage(threadId, "assistant", assistantText, vaultKey).catch(err =>
         logger.error("Failed to store assistant message", { error: err.message }),
       );
       // Trigger summarization in background
-      maybeSummarize(threadId).catch(() => {});
+      maybeSummarize(threadId, vaultKey).catch(() => {});
     }
   } catch (err) {
     logger.error("Message/run error", { error: err.message });

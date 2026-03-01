@@ -8,6 +8,7 @@
 - **docs/decision-records/** — Architectural decision records (e.g., DR0001 covers OIDC, MCP Server, and Foundry integration). Check these for rationale behind major design choices.
 - **docs/foundry-setup.md** — Azure AI Foundry setup guide for SunnieAI.
 - **docs/cloudflare-setup.md** — Domain and DNS configuration.
+- **docs/security.md** — Chat encryption architecture (per-user vault keys, threat model).
 
 **When making changes to the codebase, always update relevant documentation:**
 
@@ -77,6 +78,7 @@ All ACA secrets use Key Vault references (`keyVaultUrl` + user-assigned managed 
 | `database-url` | auth-api |
 | `finance-api-key` | auth-api, mcp-server |
 | `foundry-project-endpoint`, `foundry-agent-id` | auth-api |
+| `chat-encryption-key` | auth-api |
 | `postgres-password` | postgres (Bicep param) |
 
 ## Service Visibility

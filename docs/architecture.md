@@ -268,6 +268,11 @@ CREATE TABLE oidc_auth_codes (
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     expires_at      TIMESTAMPTZ DEFAULT NOW() + INTERVAL '5 minutes'
 );
+
+-- Chat threads & messages (encrypted at rest, see docs/security.md)
+CREATE TABLE chat_threads (id SERIAL PRIMARY KEY, user_id INT, title VARCHAR(255), summary TEXT);
+CREATE TABLE chat_messages (id SERIAL PRIMARY KEY, thread_id INT, role VARCHAR(20), content TEXT);
+CREATE TABLE user_vault_keys (user_id INT PRIMARY KEY, wrapped_key TEXT, key_type VARCHAR(20));
 ```
 
 ---
@@ -293,6 +298,8 @@ CREATE TABLE oidc_auth_codes (
 | `FOUNDRY_PROJECT_ENDPOINT`| Azure AI Foundry project endpoint for SunnieAI     |
 | `FOUNDRY_AGENT_ID`        | Registered Foundry agent ID for SunnieAI           |
 | `MCP_SERVER_URL`          | External MCP server URL (for per-request tool auth) |
+| `CHAT_ENCRYPTION_KEY`     | 256-bit hex key for chat encryption (see [security.md](security.md)) |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Azure App Insights connection string |
 
 **Production secrets** are stored in Azure Key Vault (`patelr3kvl3ytczhajsp7i`) and referenced by ACAs via `keyVaultUrl` + a shared user-assigned managed identity (`patelr3-kv-reader`). Updating a secret in AKV automatically propagates to all ACAs within 30 minutes.
 

@@ -14,7 +14,11 @@ import {
   createAccessRequest, listAccessRequests, updateAccessRequest, getUserPendingRequests,
   findUserById, listUsers, updateUserRole, updateUserPassword, touchLastLogin, deleteUser,
   createResetToken, findResetToken, deleteResetToken,
+  storeVaultKey, getWrappedVaultKey,
 } from "./db.js";
+import {
+  generateVaultKey, deriveServerKey, wrapKey,
+} from "./crypto.js";
 import oidcRouter from "./oidc.js";
 import chatRouter from "./chat.js";
 
@@ -67,6 +71,16 @@ function issueJwtCookie(res, user) {
   return token;
 }
 
+/** Create and store a vault key for a new user */
+async function ensureVaultKey(userId) {
+  if (!config.chatEncryptionKey) return;
+  const existing = await getWrappedVaultKey(userId);
+  if (existing) return;
+  const vaultKey = generateVaultKey();
+  const wrappingKey = deriveServerKey(userId);
+  await storeVaultKey(userId, wrapKey(vaultKey, Buffer.from(wrappingKey)), "server");
+}
+
 // ── Passport Google OAuth ──────────────────────────────────────
 
 passport.use(
@@ -103,6 +117,7 @@ app.get(
   (req, res) => {
     issueJwtCookie(res, req.user);
     touchLastLogin(req.user.id).catch(() => {});
+    ensureVaultKey(req.user.id).catch(() => {});
     res.redirect(config.frontendUrl);
   }
 );
@@ -128,6 +143,7 @@ app.post("/auth/register", async (req, res) => {
     const user = await createLocalUser(email, hash, displayName || email.split("@")[0]);
     issueJwtCookie(res, user);
     touchLastLogin(user.id).catch(() => {});
+    ensureVaultKey(user.id).catch(() => {});
     res.status(201).json({ authenticated: true, email: user.email, name: user.display_name, role: user.role });
   } catch (err) {
     res.status(500).json({ error: "Registration failed" });
@@ -152,6 +168,7 @@ app.post("/auth/login", async (req, res) => {
 
   issueJwtCookie(res, user);
   touchLastLogin(user.id).catch(() => {});
+  ensureVaultKey(user.id).catch(() => {});
   res.json({ authenticated: true, email: user.email, name: user.display_name, role: user.role });
 });
 
@@ -348,6 +365,10 @@ app.post("/auth/change-password", requireAuth, async (req, res) => {
 
     const hash = await bcrypt.hash(newPassword, 12);
     await updateUserPassword(user.id, hash);
+
+    // Ensure vault key exists for this user (idempotent)
+    ensureVaultKey(user.id).catch(() => {});
+
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: "Failed to change password" });
