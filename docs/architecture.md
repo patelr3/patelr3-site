@@ -298,6 +298,8 @@ CREATE TABLE user_vault_keys (user_id INT PRIMARY KEY, wrapped_key TEXT, key_typ
 | `FOUNDRY_PROJECT_ENDPOINT`| Azure AI Foundry project endpoint for SunnieAI     |
 | `FOUNDRY_AGENT_ID`        | Registered Foundry agent ID for SunnieAI           |
 | `MCP_SERVER_URL`          | External MCP server URL (for per-request tool auth) |
+| `OIDC_FOUNDRY_CLIENT_SECRET` | Client secret for the Foundry OIDC client (`foundry-agent`) |
+| `OIDC_JWKS_URL`           | JWKS endpoint for OIDC token validation (mcp-server) |
 | `CHAT_ENCRYPTION_KEY`     | 256-bit hex key for chat encryption (see [security.md](security.md)) |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Azure App Insights connection string |
 

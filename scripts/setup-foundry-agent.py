@@ -9,13 +9,11 @@ Prerequisites:
   pip install "azure-ai-projects>=2.0.0b4" azure-identity
 
 Usage:
-  python scripts/setup-foundry-agent.py
-  python scripts/setup-foundry-agent.py --model gpt-4.1-mini
-  python scripts/setup-foundry-agent.py --mcp-url https://my-mcp.example.com
+  python scripts/setup-foundry-agent.py --mcp-connection-id <connection-id>
+  python scripts/setup-foundry-agent.py --mcp-connection-id <id> --model gpt-4.1-mini
 
 Environment variables:
   PROJECT_ENDPOINT  — Azure AI Foundry project endpoint
-  MCP_SERVER_URL    — Public URL of the MCP server (overridden by --mcp-url)
 """
 
 import argparse
@@ -28,19 +26,71 @@ from azure.identity import DefaultAzureCredential
 AGENT_NAME = "sunnieai"
 STATE_FILE = os.path.join(os.path.dirname(__file__), ".foundry-agent-state.json")
 
-INSTRUCTIONS = (
-    "You are SunnieAI, a personal finance assistant. "
-    "You have access to the user's Actual Budget data through MCP tools. "
-    "Use the available tools to help manage budgets, accounts, transactions, "
-    "categories, and more. Always start by listing budgets and loading one "
-    "before performing other operations. "
-    "IMPORTANT: All monetary amounts from the API are in CENTS (integer). "
-    "Divide by 100 to display dollars (e.g. 150000 = $1,500.00). "
-    "When creating or updating transactions, convert dollars to cents (multiply by 100). "
-    "Be precise with monetary amounts and dates. "
-    "Confirm destructive actions before executing. "
-    "Be friendly, concise, and helpful."
-)
+INSTRUCTIONS = """\
+You are SunnieAI, a personal finance assistant. You have access to the user's \
+Actual Budget data through MCP tools. Use the available tools to help manage \
+budgets, accounts, transactions, categories, and more.
+
+## Monetary Amounts
+- All amounts from the Actual Budget API are integers in **cents** \
+(e.g. 150000 = $1,500.00).
+- Divide by 100 when displaying to users. Multiply by 100 when writing.
+- Negative amounts typically represent expenses/outflows; positive amounts \
+represent income/inflows.
+
+## Budget Workflow
+- Always call `list_budgets` first, then `load_budget` before any other \
+operations.
+- A budget must be **synced to the server** before it appears in \
+`list_budgets`. If a user says they just created a budget but it doesn't \
+show up, advise them to:
+  1. Open the budget in Actual Budget
+  2. Go to Settings → scroll to the "Sync" section
+  3. Ensure sync is enabled and the budget has been uploaded to the server
+- Each `load_budget` call opens a sync connection. Always load a budget \
+before querying its accounts, transactions, or categories.
+
+## Accounts
+- Account balances are running totals in cents.
+- "Off-budget" accounts (like investment or tracking accounts) are not \
+included in budget calculations.
+- Closing an account does not delete it — it hides it from active views \
+but preserves history.
+
+## Transactions
+- Transactions use category IDs, not names. Call `get_categories` to map \
+IDs to human-readable names.
+- Transfer transactions appear in both the source and destination accounts.
+- When listing transactions, use date filters to avoid overwhelming results. \
+Default to the current month if the user doesn't specify a range.
+- Split transactions have a parent transaction with multiple \
+sub-transactions, each with its own category.
+
+## Categories
+- Categories are organized into groups. Each category belongs to exactly \
+one group.
+- Budget amounts are set per-category per-month.
+- "Income" categories work differently — they represent money coming in, \
+not spending targets.
+
+## Common Issues
+- **"Budget not found"**: The sync ID may be wrong, or the budget hasn't \
+been synced. Ask the user to check sync settings.
+- **Empty transaction list**: The user may need to specify a wider date \
+range, or the account may have no transactions.
+- **Tool timeout**: Large queries (e.g. all transactions for a year) may \
+time out. Suggest narrowing the date range.
+- **Auth errors on tool calls**: The user's session may have expired. \
+Suggest refreshing the page and trying again.
+
+## Best Practices
+- When summarizing spending, group by category and show totals in dollars.
+- For budget overviews, show budgeted vs. actual for the current month.
+- Always confirm before creating, updating, or deleting any data.
+- If a tool call fails, explain the error in plain language and suggest \
+next steps.
+- Be friendly, concise, and helpful.\
+"""
 
 
 def load_state():
@@ -58,24 +108,28 @@ def save_state(state):
 def main():
     parser = argparse.ArgumentParser(description="Register/update SunnieAI agent in Azure AI Foundry")
     parser.add_argument("--model", default="gpt-4.1", help="Model deployment name (default: gpt-4.1)")
-    parser.add_argument("--mcp-url", default=None, help="MCP server URL (overrides MCP_SERVER_URL env)")
+    parser.add_argument(
+        "--mcp-connection-id",
+        default=None,
+        help="Project connection ID for the OAuth MCP connection (from Foundry portal)",
+    )
     args = parser.parse_args()
 
     project_endpoint = os.environ.get("PROJECT_ENDPOINT")
-    mcp_url = args.mcp_url or os.environ.get("MCP_SERVER_URL")
+    mcp_connection_id = args.mcp_connection_id
 
     if not project_endpoint:
         project_endpoint = "https://arayosun-prod-eastus2-resource.services.ai.azure.com/api/projects/arayosun-prod-eastus2"
         print(f"  Using default PROJECT_ENDPOINT: {project_endpoint}")
 
-    if not mcp_url:
-        print("Error: MCP_SERVER_URL env or --mcp-url flag is required")
+    if not mcp_connection_id:
+        print("Error: --mcp-connection-id is required (the project connection ID from the Foundry portal)")
         sys.exit(1)
 
     print(f"=== SunnieAI Agent Setup (New Foundry) ===")
-    print(f"Endpoint: {project_endpoint}")
-    print(f"Model:    {args.model}")
-    print(f"MCP URL:  {mcp_url}/mcp")
+    print(f"Endpoint:      {project_endpoint}")
+    print(f"Model:         {args.model}")
+    print(f"MCP Connection: {mcp_connection_id}")
     print()
 
     # Import SDK (deferred so --help works without SDK installed)
@@ -88,10 +142,10 @@ def main():
         credential=credential,
     )
 
-    # Configure MCP tool
+    # Configure MCP tool with project connection (OAuth identity passthrough)
     mcp_tool = MCPTool(
         server_label="actual-budget-mcp",
-        server_url=f"{mcp_url}/mcp",
+        project_connection_id=mcp_connection_id,
         require_approval="never",
     )
 
@@ -122,13 +176,14 @@ def main():
         "agent_version": agent_version,
         "agent_id": agent_id,
         "model": args.model,
-        "mcp_url": mcp_url,
+        "mcp_connection_id": mcp_connection_id,
     })
 
     print(f"  State: saved to {STATE_FILE}")
     print()
-    print("Agent name for auth-api config:")
+    print("Agent name and ID for auth-api config:")
     print(f"  FOUNDRY_AGENT_NAME={agent_name}")
+    print(f"  FOUNDRY_AGENT_ID={agent_id}")
 
 
 if __name__ == "__main__":

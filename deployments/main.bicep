@@ -123,6 +123,7 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'MCP_SERVER_URL', value: 'https://${projectName}-mcp-server.${cae.outputs.defaultDomain}' }
       { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
       { name: 'CHAT_ENCRYPTION_KEY', secretRef: 'chat-encryption-key' }
+      { name: 'OIDC_FOUNDRY_CLIENT_SECRET', secretRef: 'oidc-foundry-client-secret' }
     ]
     secrets: [
       { name: 'google-client-id', keyVaultUrl: '${kvSecretsUrl}/google-client-id', identity: kvReaderIdentity.id }
@@ -135,6 +136,7 @@ module authApi 'modules/container-app.bicep' = {
       { name: 'foundry-agent-id', keyVaultUrl: '${kvSecretsUrl}/foundry-agent-id', identity: kvReaderIdentity.id }
       { name: 'appinsights-connection-string', keyVaultUrl: '${kvSecretsUrl}/appinsights-connection-string', identity: kvReaderIdentity.id }
       { name: 'chat-encryption-key', keyVaultUrl: '${kvSecretsUrl}/chat-encryption-key', identity: kvReaderIdentity.id }
+      { name: 'oidc-foundry-client-secret', keyVaultUrl: '${kvSecretsUrl}/oidc-foundry-client-secret', identity: kvReaderIdentity.id }
     ]
   }
 }
@@ -209,6 +211,7 @@ module mcpServer 'modules/container-app.bicep' = {
       { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
       { name: 'FINANCE_API_URL', value: 'https://finance-api.${financeCaeDomain}' }
       { name: 'FINANCE_API_KEY', secretRef: 'finance-api-key' }
+      { name: 'OIDC_JWKS_URL', value: 'https://www.arayosun.com/api/auth/oidc/jwks' }
     ]
     secrets: [
       { name: 'jwt-secret', keyVaultUrl: '${kvSecretsUrl}/jwt-secret', identity: kvReaderIdentity.id }
