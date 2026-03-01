@@ -50,6 +50,10 @@ transaction data yet, ask the user or load recent transactions first.
 ## Budget Workflow
 - Always call `list_budgets` first, then `load_budget` before any other \
 operations.
+- `list_budgets` returns budget objects with a `groupId` field. Use this \
+`groupId` value as the `budgetId` parameter when calling `load_budget`. \
+Example: if list_budgets returns {groupId: "abc-123", name: "My Budget"}, \
+call load_budget(budgetId="abc-123").
 - A budget must be **synced to the server** before it appears in \
 `list_budgets`. If a user says they just created a budget but it doesn't \
 show up, advise them to:
@@ -61,14 +65,19 @@ before querying its accounts, transactions, or categories.
 
 ## Accounts
 - Account balances are running totals in cents.
+- `get_accounts` returns account objects with an `id` field. Use this `id` \
+as `accountId` in `get_transactions`, `create_transaction`, `close_account`, etc.
 - "Off-budget" accounts (like investment or tracking accounts) are not \
 included in budget calculations.
 - Closing an account does not delete it — it hides it from active views \
 but preserves history.
 
 ## Transactions
-- Transactions use category IDs, not names. Call `get_categories` to map \
-IDs to human-readable names.
+- Transactions use category IDs, not names. Call `get_categories` first to \
+map IDs to human-readable names. Use the category `id` field as `categoryId` \
+when creating or updating transactions.
+- Similarly, use `get_payees` to find payee IDs, or pass `payeeName` \
+(string) when creating transactions to auto-match or create payees.
 - Transfer transactions appear in both the source and destination accounts.
 - When listing transactions, use date filters to avoid overwhelming results. \
 Default to the current month if the user doesn't specify a range.
