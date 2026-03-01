@@ -109,6 +109,8 @@ router.post("/chat/conversations/:id/messages", async (req, res) => {
       );
 
       let responseId = null;
+      // Track output item types to filter text deltas (only forward message text)
+      const outputItemTypes = {};
 
       // Stream events to client
       for await (const event of response) {
@@ -117,8 +119,14 @@ router.post("/chat/conversations/:id/messages", async (req, res) => {
           responseId = event.response.id;
         }
 
+        // Track new output items by type
+        if (event.type === "response.output_item.added" && event.item?.id) {
+          outputItemTypes[event.item.id] = event.item.type;
+        }
+
         if (event.type === "response.output_item.done") {
           const item = event.item;
+          if (item?.id) outputItemTypes[item.id] = item.type;
 
           // OAuth consent request — surface consent link to frontend
           if (item?.type === "oauth_consent_request") {
@@ -127,6 +135,13 @@ router.post("/chat/conversations/:id/messages", async (req, res) => {
               consentLink: item.consent_link,
               responseId,
             });
+            continue;
+          }
+
+          // Tool calls — notify frontend so it can show status
+          if (item?.type === "function_call" || item?.type === "mcp_call") {
+            rootSpan.addEvent("tool_call", { "tool.name": item.name || "unknown" });
+            writeSseEvent(res, "tool_call", { name: item.name || item.tool_name || "tool" });
             continue;
           }
 
@@ -142,9 +157,12 @@ router.post("/chat/conversations/:id/messages", async (req, res) => {
           }
         }
 
-        // Streaming text delta
+        // Streaming text delta — only forward for message items (not tool calls)
         if (event.type === "response.output_text.delta") {
-          writeSseEvent(res, "text_delta", { delta: event.delta });
+          const itemType = outputItemTypes[event.item_id];
+          if (!itemType || itemType === "message") {
+            writeSseEvent(res, "text_delta", { delta: event.delta });
+          }
         }
 
         // Response completed
@@ -155,8 +173,6 @@ router.post("/chat/conversations/:id/messages", async (req, res) => {
           if (resp?.status === "incomplete" && resp?.incomplete_details?.reason === "max_output_tokens") {
             rootSpan.addEvent("auto_continue", { "response.id": resp.id });
             writeSseEvent(res, "status", { status: "continuing" });
-            // Continue by re-calling with previous_response_id
-            // (Frontend should re-send with previousResponseId if needed)
           }
 
           writeSseEvent(res, "done", {

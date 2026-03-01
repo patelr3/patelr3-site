@@ -25,11 +25,13 @@ export default function SunnieAI() {
     return data.conversationId;
   }
 
-  async function sendMessage(text, previousResponseId = null) {
+  async function sendMessage(text, previousResponseId = null, { isRetry = false } = {}) {
     if (!text.trim()) return;
 
-    setMessages((prev) => [...prev, { role: "user", content: text }]);
-    setInput("");
+    if (!isRetry) {
+      setMessages((prev) => [...prev, { role: "user", content: text }]);
+      setInput("");
+    }
     setLoading(true);
     setConsentLink(null);
 
@@ -73,9 +75,12 @@ export default function SunnieAI() {
         }
       }
 
+      let hasReceivedDelta = false;
+
       function handleSseEvent(type, data, originalText) {
         switch (type) {
           case "text_delta":
+            hasReceivedDelta = true;
             assistantText += data.delta;
             setMessages((prev) => {
               const updated = [...prev];
@@ -85,12 +90,28 @@ export default function SunnieAI() {
             break;
 
           case "message":
+            // Only use final message text if no deltas were streamed (fallback),
+            // or to correct the accumulated text with the authoritative version
             assistantText = data.text;
             setMessages((prev) => {
               const updated = [...prev];
               updated[updated.length - 1] = { role: "assistant", content: data.text };
               return updated;
             });
+            break;
+
+          case "tool_call":
+            // Show tool execution status (only if no real text has arrived yet)
+            if (!hasReceivedDelta) {
+              setMessages((prev) => {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                  role: "assistant",
+                  content: `🔧 Looking up your data...`,
+                };
+                return updated;
+              });
+            }
             break;
 
           case "oauth_consent":
@@ -141,7 +162,7 @@ export default function SunnieAI() {
         clearInterval(interval);
         setConsentLink(null);
         if (pendingRetry) {
-          sendMessage(pendingRetry.text, pendingRetry.responseId);
+          sendMessage(pendingRetry.text, pendingRetry.responseId, { isRetry: true });
           setPendingRetry(null);
         }
       }
