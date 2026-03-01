@@ -120,6 +120,28 @@ export async function initDb() {
     )
   `);
 
+  // OIDC access tokens (persistent, replaces in-memory store)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS oidc_access_tokens (
+      token       VARCHAR(255) PRIMARY KEY,
+      user_id     INT REFERENCES users(id) ON DELETE CASCADE,
+      claims      JSONB NOT NULL,
+      expires_at  TIMESTAMPTZ NOT NULL,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // OIDC refresh tokens (for refresh_token grant)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS oidc_refresh_tokens (
+      token       VARCHAR(255) PRIMARY KEY,
+      user_id     INT REFERENCES users(id) ON DELETE CASCADE,
+      client_id   VARCHAR(255) NOT NULL,
+      expires_at  TIMESTAMPTZ NOT NULL,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   // Chat threads (user conversations)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS chat_threads (
@@ -400,6 +422,48 @@ export async function consumeOidcAuthCode(code) {
   const { rows } = await pool.query(
     `DELETE FROM oidc_auth_codes WHERE code = $1 AND expires_at > NOW() RETURNING *`,
     [code]
+  );
+  return rows[0] || null;
+}
+
+// ── OIDC access token queries ──────────────────────────────────
+
+export async function storeOidcAccessToken(token, userId, claims, expiresAt) {
+  await pool.query(
+    `INSERT INTO oidc_access_tokens (token, user_id, claims, expires_at)
+     VALUES ($1, $2, $3, $4)`,
+    [token, userId, JSON.stringify(claims), expiresAt]
+  );
+}
+
+export async function getOidcAccessToken(token) {
+  const { rows } = await pool.query(
+    `SELECT * FROM oidc_access_tokens WHERE token = $1 AND expires_at > NOW()`,
+    [token]
+  );
+  return rows[0] || null;
+}
+
+export async function deleteExpiredOidcTokens() {
+  await pool.query(`DELETE FROM oidc_access_tokens WHERE expires_at <= NOW()`);
+  await pool.query(`DELETE FROM oidc_refresh_tokens WHERE expires_at <= NOW()`);
+  await pool.query(`DELETE FROM oidc_auth_codes WHERE expires_at <= NOW()`);
+}
+
+// ── OIDC refresh token queries ─────────────────────────────────
+
+export async function storeOidcRefreshToken(token, userId, clientId, expiresAt) {
+  await pool.query(
+    `INSERT INTO oidc_refresh_tokens (token, user_id, client_id, expires_at)
+     VALUES ($1, $2, $3, $4)`,
+    [token, userId, clientId, expiresAt]
+  );
+}
+
+export async function consumeOidcRefreshToken(token) {
+  const { rows } = await pool.query(
+    `DELETE FROM oidc_refresh_tokens WHERE token = $1 AND expires_at > NOW() RETURNING *`,
+    [token]
   );
   return rows[0] || null;
 }

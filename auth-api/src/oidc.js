@@ -2,9 +2,15 @@
 // can use auth-api as their OpenID provider with a single redirect URI.
 import { Router } from "express";
 import crypto from "crypto";
-import { importPKCS8, exportJWK, SignJWT, generateKeyPair } from "jose";
+import jwt from "jsonwebtoken";
+import { exportJWK, SignJWT, generateKeyPair } from "jose";
 import config from "./config.js";
-import { storeOidcAuthCode, consumeOidcAuthCode, findUserById } from "./db.js";
+import logger from "./logger.js";
+import {
+  storeOidcAuthCode, consumeOidcAuthCode, findUserById,
+  storeOidcAccessToken, getOidcAccessToken, deleteExpiredOidcTokens,
+  storeOidcRefreshToken, consumeOidcRefreshToken,
+} from "./db.js";
 
 const router = Router();
 
@@ -26,6 +32,17 @@ function issuerUrl() {
   return `${base}/api/auth/oidc`;
 }
 
+// ── Client validation helpers ─────────────────────────────────
+
+function isValidClient(clientId) {
+  return !!(config.oidcClients[clientId]);
+}
+
+function isValidClientCredentials(clientId, clientSecret) {
+  const client = config.oidcClients[clientId];
+  return client && client.secret === clientSecret;
+}
+
 // ── Discovery document ────────────────────────────────────────
 router.get("/.well-known/openid-configuration", async (_req, res) => {
   const iss = issuerUrl();
@@ -42,7 +59,7 @@ router.get("/.well-known/openid-configuration", async (_req, res) => {
     token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
     claims_supported: ["sub", "email", "name", "preferred_username"],
     code_challenge_methods_supported: ["S256", "plain"],
-    grant_types_supported: ["authorization_code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
   });
 });
 
@@ -55,7 +72,8 @@ router.get("/jwks", async (_req, res) => {
 // ── Authorize endpoint ────────────────────────────────────────
 // ActualBudget redirects users here. We redirect to Google OAuth,
 // storing AB's callback info in the session state.
-router.get("/authorize", (req, res) => {
+// If the user already has a valid access_token cookie, skip Google.
+router.get("/authorize", async (req, res) => {
   const {
     redirect_uri, state, client_id, response_type,
     code_challenge, code_challenge_method, scope,
@@ -64,11 +82,45 @@ router.get("/authorize", (req, res) => {
   if (response_type !== "code") {
     return res.status(400).json({ error: "unsupported_response_type" });
   }
-  if (client_id !== config.oidcClientId) {
+  if (!isValidClient(client_id)) {
     return res.status(400).json({ error: "invalid_client" });
   }
   if (!redirect_uri) {
     return res.status(400).json({ error: "invalid_request", error_description: "redirect_uri is required" });
+  }
+
+  // Skip Google redirect if user already has a valid access_token cookie
+  const accessTokenCookie = req.cookies?.access_token;
+  if (accessTokenCookie) {
+    try {
+      const payload = jwt.verify(accessTokenCookie, config.jwtSecret);
+      const user = await findUserById(Number(payload.sub));
+      if (user) {
+        // Generate auth code directly — skip Google OAuth
+        const authCode = crypto.randomBytes(32).toString("hex");
+        const googleClaims = {
+          sub: user.google_id || String(user.id),
+          email: user.email,
+          name: user.display_name,
+          preferred_username: user.email,
+          picture: user.avatar_url || "",
+        };
+
+        await storeOidcAuthCode(
+          authCode, user.id, redirect_uri, client_id,
+          code_challenge || "", code_challenge_method || "", googleClaims,
+        );
+
+        logger.info("OIDC authorize: skipped Google for authenticated user", { userId: user.id, clientId: client_id });
+
+        const redirectUrl = new URL(redirect_uri);
+        redirectUrl.searchParams.set("code", authCode);
+        if (state) redirectUrl.searchParams.set("state", state);
+        return res.redirect(redirectUrl.toString());
+      }
+    } catch {
+      // Cookie invalid or user not found — fall through to Google OAuth
+    }
   }
 
   // Store AB's request parameters in session so we can resume after Google OAuth
@@ -123,7 +175,7 @@ router.get("/callback", async (req, res) => {
 
     if (!tokenRes.ok) {
       const err = await tokenRes.text();
-      console.error("[oidc] Google token exchange failed:", err);
+      logger.error("OIDC Google token exchange failed", { error: err });
       return res.status(502).json({ error: "google_token_exchange_failed" });
     }
 
@@ -168,25 +220,20 @@ router.get("/callback", async (req, res) => {
     if (pending.state) redirectUrl.searchParams.set("state", pending.state);
     res.redirect(redirectUrl.toString());
   } catch (err) {
-    console.error("[oidc] Callback error:", err);
+    logger.error("OIDC callback error", { error: err.message });
     res.status(500).json({ error: "internal_error" });
   }
 });
 
 // ── Token endpoint ────────────────────────────────────────────
-// ActualBudget exchanges the authorization code for ID + access tokens.
 router.post("/token", async (req, res) => {
   await ensureKeys();
 
-  const { code, grant_type, redirect_uri, client_id, client_secret, code_verifier } = req.body;
+  const { grant_type } = req.body;
 
-  if (grant_type !== "authorization_code") {
-    return res.status(400).json({ error: "unsupported_grant_type" });
-  }
-
-  // Validate client credentials (from body or Basic auth header)
-  let reqClientId = client_id;
-  let reqClientSecret = client_secret;
+  // Extract client credentials from body or Basic auth header
+  let reqClientId = req.body.client_id;
+  let reqClientSecret = req.body.client_secret;
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith("Basic ")) {
     const decoded = Buffer.from(authHeader.slice(6), "base64").toString();
@@ -195,7 +242,20 @@ router.post("/token", async (req, res) => {
     reqClientSecret = reqClientSecret || secret;
   }
 
-  if (reqClientId !== config.oidcClientId || reqClientSecret !== config.oidcClientSecret) {
+  if (grant_type === "authorization_code") {
+    return handleAuthorizationCodeGrant(req, res, reqClientId, reqClientSecret);
+  }
+  if (grant_type === "refresh_token") {
+    return handleRefreshTokenGrant(req, res, reqClientId, reqClientSecret);
+  }
+
+  return res.status(400).json({ error: "unsupported_grant_type" });
+});
+
+async function handleAuthorizationCodeGrant(req, res, reqClientId, reqClientSecret) {
+  const { code, redirect_uri, code_verifier } = req.body;
+
+  if (!isValidClientCredentials(reqClientId, reqClientSecret)) {
     return res.status(401).json({ error: "invalid_client" });
   }
 
@@ -231,6 +291,53 @@ router.post("/token", async (req, res) => {
     ? JSON.parse(authCode.google_claims)
     : authCode.google_claims;
 
+  const tokenResponse = await issueTokens(authCode.user_id, reqClientId, claims);
+  res.json(tokenResponse);
+}
+
+async function handleRefreshTokenGrant(req, res, reqClientId, reqClientSecret) {
+  const { refresh_token } = req.body;
+
+  if (!isValidClientCredentials(reqClientId, reqClientSecret)) {
+    return res.status(401).json({ error: "invalid_client" });
+  }
+
+  if (!refresh_token) {
+    return res.status(400).json({ error: "invalid_grant", error_description: "refresh_token is required" });
+  }
+
+  // Consume refresh token (single-use, rotating)
+  const storedToken = await consumeOidcRefreshToken(refresh_token);
+  if (!storedToken) {
+    return res.status(400).json({ error: "invalid_grant", error_description: "Invalid or expired refresh token" });
+  }
+
+  // Verify client_id matches the one the refresh token was issued to
+  if (storedToken.client_id !== reqClientId) {
+    return res.status(400).json({ error: "invalid_grant", error_description: "client_id mismatch" });
+  }
+
+  // Look up user to get current claims
+  const user = await findUserById(storedToken.user_id);
+  if (!user) {
+    return res.status(400).json({ error: "invalid_grant", error_description: "User not found" });
+  }
+
+  const claims = {
+    sub: user.google_id || String(user.id),
+    email: user.email,
+    name: user.display_name,
+    preferred_username: user.email,
+    picture: user.avatar_url || "",
+  };
+
+  logger.info("OIDC refresh token exchanged", { userId: user.id, clientId: reqClientId });
+
+  const tokenResponse = await issueTokens(storedToken.user_id, reqClientId, claims);
+  res.json(tokenResponse);
+}
+
+async function issueTokens(userId, clientId, claims) {
   const iss = issuerUrl();
   const now = Math.floor(Date.now() / 1000);
 
@@ -243,59 +350,59 @@ router.post("/token", async (req, res) => {
   })
     .setProtectedHeader({ alg: "RS256", kid: KID })
     .setIssuer(iss)
-    .setSubject(String(authCode.user_id))
-    .setAudience(config.oidcClientId)
+    .setSubject(String(userId))
+    .setAudience(clientId)
     .setIssuedAt(now)
     .setExpirationTime(now + 3600)
     .sign(signingKey);
 
-  // Generate opaque access token (used for userinfo)
+  // Generate opaque access token and store in Postgres
   const accessToken = crypto.randomBytes(32).toString("hex");
+  const accessExpiresAt = new Date(Date.now() + 3600 * 1000);
+  await storeOidcAccessToken(accessToken, userId, claims, accessExpiresAt);
 
-  // Store access token → user mapping in memory (short-lived)
-  accessTokenStore.set(accessToken, { userId: authCode.user_id, claims, expiresAt: Date.now() + 3600 * 1000 });
+  // Generate refresh token (64-byte hex, 30-day expiry)
+  const refreshToken = crypto.randomBytes(64).toString("hex");
+  const refreshExpiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000);
+  await storeOidcRefreshToken(refreshToken, userId, clientId, refreshExpiresAt);
 
-  res.json({
+  return {
     access_token: accessToken,
     token_type: "Bearer",
     expires_in: 3600,
     id_token: idToken,
-  });
-});
-
-// In-memory store for access tokens (short-lived, ok for single-instance)
-const accessTokenStore = new Map();
-
-// Periodic cleanup of expired access tokens
-setInterval(() => {
-  const now = Date.now();
-  for (const [token, data] of accessTokenStore) {
-    if (data.expiresAt < now) accessTokenStore.delete(token);
-  }
-}, 60 * 1000);
+    refresh_token: refreshToken,
+  };
+}
 
 // ── Userinfo endpoint ─────────────────────────────────────────
-router.get("/userinfo", (req, res) => {
+router.get("/userinfo", async (req, res) => {
   const auth = req.headers.authorization;
   if (!auth?.startsWith("Bearer ")) {
     return res.status(401).json({ error: "invalid_token" });
   }
 
   const token = auth.slice(7);
-  const data = accessTokenStore.get(token);
-  if (!data || data.expiresAt < Date.now()) {
+  const data = await getOidcAccessToken(token);
+  if (!data) {
     return res.status(401).json({ error: "invalid_token" });
   }
 
+  const claims = typeof data.claims === "string" ? JSON.parse(data.claims) : data.claims;
+
   res.json({
-    sub: String(data.userId),
-    email: data.claims.email,
-    name: data.claims.name,
-    preferred_username: data.claims.preferred_username || data.claims.email,
-    picture: data.claims.picture,
+    sub: String(data.user_id),
+    email: claims.email,
+    name: claims.name,
+    preferred_username: claims.preferred_username || claims.email,
+    picture: claims.picture,
   });
 });
 
+// Clean up expired OIDC tokens on startup and periodically
+deleteExpiredOidcTokens().catch(() => {});
+setInterval(() => deleteExpiredOidcTokens().catch(() => {}), 60 * 60 * 1000);
+
 // Export for testing
-export { accessTokenStore, ensureKeys };
+export { ensureKeys };
 export default router;

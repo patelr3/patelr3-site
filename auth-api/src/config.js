@@ -10,6 +10,11 @@ const config = {
   // OIDC provider config (auth-api acting as IdP for ActualBudget instances)
   oidcClientId: process.env.OIDC_CLIENT_ID || "actualbudget",
   oidcClientSecret: process.env.OIDC_CLIENT_SECRET || process.env.JWT_SECRET || "change-me",
+  // Multi-client OIDC support (clients map keyed by client_id)
+  oidcClients: {
+    [process.env.OIDC_CLIENT_ID || "actualbudget"]: { secret: process.env.OIDC_CLIENT_SECRET || process.env.JWT_SECRET || "change-me" },
+    "foundry-agent": { secret: process.env.OIDC_FOUNDRY_CLIENT_SECRET || process.env.JWT_SECRET || "change-me" },
+  },
   // Azure AI Foundry (SunnieAI chat)
   foundryProjectEndpoint: process.env.FOUNDRY_PROJECT_ENDPOINT || "",
   foundryAgentName: process.env.FOUNDRY_AGENT_NAME || "sunnieai",

@@ -26,6 +26,11 @@ const mockDb = {
   deleteResetToken: jest.fn(),
   storeOidcAuthCode: jest.fn(),
   consumeOidcAuthCode: jest.fn(),
+  storeOidcAccessToken: jest.fn(),
+  getOidcAccessToken: jest.fn(),
+  deleteExpiredOidcTokens: jest.fn().mockResolvedValue(),
+  storeOidcRefreshToken: jest.fn(),
+  consumeOidcRefreshToken: jest.fn(),
   getOrCreateThread: jest.fn(),
   getUserThreads: jest.fn(),
   deleteThread: jest.fn(),
@@ -52,6 +57,7 @@ jest.unstable_mockModule("@azure/identity", () => ({
 const { default: app } = await import("../src/app.js");
 import request from "supertest";
 import crypto from "crypto";
+import jwt from "jsonwebtoken";
 
 const OIDC_CLIENT_ID = "actualbudget";
 const OIDC_CLIENT_SECRET = "change-me";
@@ -76,6 +82,7 @@ describe("OIDC Discovery", () => {
     expect(res.body.scopes_supported).toEqual(expect.arrayContaining(["openid", "email", "profile"]));
     expect(res.body.code_challenge_methods_supported).toEqual(expect.arrayContaining(["S256", "plain"]));
     expect(res.body.grant_types_supported).toContain("authorization_code");
+    expect(res.body.grant_types_supported).toContain("refresh_token");
   });
 });
 
@@ -244,6 +251,8 @@ describe("OIDC Token", () => {
     expect(res.body.token_type).toBe("Bearer");
     expect(res.body.expires_in).toBe(3600);
     expect(res.body.id_token).toBeDefined();
+    expect(res.body.refresh_token).toBeDefined();
+    expect(res.body.refresh_token.length).toBe(128); // 64 bytes hex
 
     // ID token should be a valid JWT
     const parts = res.body.id_token.split(".");
@@ -368,6 +377,8 @@ describe("OIDC Userinfo", () => {
   });
 
   it("rejects invalid access token", async () => {
+    mockDb.getOidcAccessToken.mockResolvedValue(null);
+
     await request(app)
       .get("/auth/oidc/userinfo")
       .set("Authorization", "Bearer invalid-token")
@@ -400,6 +411,20 @@ describe("OIDC Userinfo", () => {
       })
       .expect(200);
 
+    // Mock getOidcAccessToken to return the stored data
+    mockDb.getOidcAccessToken.mockResolvedValue({
+      token: tokenRes.body.access_token,
+      user_id: 99,
+      claims: {
+        email: "userinfo@test.com",
+        name: "Userinfo Test",
+        preferred_username: "userinfo@test.com",
+        sub: "g-userinfo",
+        picture: "https://example.com/avatar.jpg",
+      },
+      expires_at: new Date(Date.now() + 3600 * 1000),
+    });
+
     const res = await request(app)
       .get("/auth/oidc/userinfo")
       .set("Authorization", `Bearer ${tokenRes.body.access_token}`)
@@ -410,5 +435,315 @@ describe("OIDC Userinfo", () => {
     expect(res.body.name).toBe("Userinfo Test");
     expect(res.body.preferred_username).toBe("userinfo@test.com");
     expect(res.body.picture).toBe("https://example.com/avatar.jpg");
+  });
+});
+
+describe("OIDC Multi-Client Support", () => {
+  it("accepts foundry-agent as a valid client_id in authorize", async () => {
+    const res = await request(app)
+      .get("/auth/oidc/authorize")
+      .query({
+        response_type: "code",
+        client_id: "foundry-agent",
+        redirect_uri: "https://foundry.example.com/callback",
+        state: "foundry-state",
+        scope: "openid email profile",
+      })
+      .expect(302);
+
+    expect(res.headers.location).toContain("accounts.google.com");
+  });
+
+  it("accepts foundry-agent client credentials at token endpoint", async () => {
+    mockDb.consumeOidcAuthCode.mockResolvedValue({
+      code: "foundry-code",
+      user_id: 10,
+      redirect_uri: "https://foundry.example.com/callback",
+      client_id: "foundry-agent",
+      google_claims: { email: "agent@test.com", name: "Agent", sub: "g-agent" },
+    });
+
+    const res = await request(app)
+      .post("/auth/oidc/token")
+      .send({
+        grant_type: "authorization_code",
+        code: "foundry-code",
+        client_id: "foundry-agent",
+        client_secret: "change-me",
+      })
+      .expect(200);
+
+    expect(res.body.access_token).toBeDefined();
+    expect(res.body.id_token).toBeDefined();
+    expect(res.body.refresh_token).toBeDefined();
+  });
+
+  it("rejects unknown client_id in authorize", async () => {
+    const res = await request(app)
+      .get("/auth/oidc/authorize")
+      .query({ response_type: "code", client_id: "unknown-client", redirect_uri: "https://example.com/cb" })
+      .expect(400);
+
+    expect(res.body.error).toBe("invalid_client");
+  });
+
+  it("rejects unknown client_id at token endpoint", async () => {
+    const res = await request(app)
+      .post("/auth/oidc/token")
+      .send({
+        grant_type: "authorization_code",
+        code: "test",
+        client_id: "unknown-client",
+        client_secret: "change-me",
+      })
+      .expect(401);
+
+    expect(res.body.error).toBe("invalid_client");
+  });
+});
+
+describe("OIDC Refresh Token Grant", () => {
+  it("issues refresh token with authorization_code grant", async () => {
+    mockDb.consumeOidcAuthCode.mockResolvedValue({
+      code: "refresh-test-code",
+      user_id: 5,
+      redirect_uri: "https://ab.example.com/cb",
+      client_id: OIDC_CLIENT_ID,
+      google_claims: { email: "refresh@test.com", name: "Refresh", sub: "g-refresh" },
+    });
+
+    const res = await request(app)
+      .post("/auth/oidc/token")
+      .send({
+        grant_type: "authorization_code",
+        code: "refresh-test-code",
+        client_id: OIDC_CLIENT_ID,
+        client_secret: OIDC_CLIENT_SECRET,
+      })
+      .expect(200);
+
+    expect(res.body.refresh_token).toBeDefined();
+    expect(res.body.refresh_token.length).toBe(128);
+    expect(mockDb.storeOidcRefreshToken).toHaveBeenCalledWith(
+      res.body.refresh_token, 5, OIDC_CLIENT_ID, expect.any(Date)
+    );
+  });
+
+  it("exchanges refresh token for new tokens", async () => {
+    mockDb.consumeOidcRefreshToken.mockResolvedValue({
+      token: "old-refresh-token",
+      user_id: 5,
+      client_id: OIDC_CLIENT_ID,
+    });
+    mockDb.findUserById.mockResolvedValue({
+      id: 5,
+      email: "refresh@test.com",
+      display_name: "Refresh User",
+      google_id: "g-refresh",
+      avatar_url: "https://example.com/pic.jpg",
+    });
+
+    const res = await request(app)
+      .post("/auth/oidc/token")
+      .send({
+        grant_type: "refresh_token",
+        refresh_token: "old-refresh-token",
+        client_id: OIDC_CLIENT_ID,
+        client_secret: OIDC_CLIENT_SECRET,
+      })
+      .expect(200);
+
+    expect(res.body.access_token).toBeDefined();
+    expect(res.body.id_token).toBeDefined();
+    expect(res.body.refresh_token).toBeDefined();
+    expect(res.body.refresh_token).not.toBe("old-refresh-token"); // rotating
+    expect(res.body.token_type).toBe("Bearer");
+    expect(res.body.expires_in).toBe(3600);
+  });
+
+  it("rejects invalid refresh token", async () => {
+    mockDb.consumeOidcRefreshToken.mockResolvedValue(null);
+
+    const res = await request(app)
+      .post("/auth/oidc/token")
+      .send({
+        grant_type: "refresh_token",
+        refresh_token: "bad-token",
+        client_id: OIDC_CLIENT_ID,
+        client_secret: OIDC_CLIENT_SECRET,
+      })
+      .expect(400);
+
+    expect(res.body.error).toBe("invalid_grant");
+  });
+
+  it("rejects refresh token with wrong client_id", async () => {
+    mockDb.consumeOidcRefreshToken.mockResolvedValue({
+      token: "stolen-token",
+      user_id: 5,
+      client_id: "foundry-agent",
+    });
+
+    const res = await request(app)
+      .post("/auth/oidc/token")
+      .send({
+        grant_type: "refresh_token",
+        refresh_token: "stolen-token",
+        client_id: OIDC_CLIENT_ID,
+        client_secret: OIDC_CLIENT_SECRET,
+      })
+      .expect(400);
+
+    expect(res.body.error).toBe("invalid_grant");
+    expect(res.body.error_description).toContain("client_id mismatch");
+  });
+
+  it("rejects missing refresh_token parameter", async () => {
+    const res = await request(app)
+      .post("/auth/oidc/token")
+      .send({
+        grant_type: "refresh_token",
+        client_id: OIDC_CLIENT_ID,
+        client_secret: OIDC_CLIENT_SECRET,
+      })
+      .expect(400);
+
+    expect(res.body.error).toBe("invalid_grant");
+    expect(res.body.error_description).toContain("refresh_token is required");
+  });
+
+  it("rejects invalid client credentials for refresh_token grant", async () => {
+    const res = await request(app)
+      .post("/auth/oidc/token")
+      .send({
+        grant_type: "refresh_token",
+        refresh_token: "some-token",
+        client_id: OIDC_CLIENT_ID,
+        client_secret: "wrong-secret",
+      })
+      .expect(401);
+
+    expect(res.body.error).toBe("invalid_client");
+  });
+});
+
+describe("OIDC Skip-Google for Authenticated Users", () => {
+  it("redirects directly to redirect_uri with auth code when user has valid cookie", async () => {
+    const token = jwt.sign(
+      { sub: "42", email: "auth@test.com", name: "Auth User", role: "user" },
+      "change-me",
+      { expiresIn: "1h" }
+    );
+
+    mockDb.findUserById.mockResolvedValue({
+      id: 42,
+      email: "auth@test.com",
+      display_name: "Auth User",
+      google_id: "g-42",
+      avatar_url: "https://example.com/pic.jpg",
+    });
+
+    const res = await request(app)
+      .get("/auth/oidc/authorize")
+      .set("Cookie", `access_token=${token}`)
+      .query({
+        response_type: "code",
+        client_id: OIDC_CLIENT_ID,
+        redirect_uri: "https://ab.example.com/openid/callback",
+        state: "test-state-123",
+        scope: "openid email profile",
+      })
+      .expect(302);
+
+    // Should redirect to the client's redirect_uri, NOT Google
+    expect(res.headers.location).toContain("ab.example.com/openid/callback");
+    expect(res.headers.location).toContain("code=");
+    expect(res.headers.location).toContain("state=test-state-123");
+    expect(res.headers.location).not.toContain("accounts.google.com");
+
+    expect(mockDb.storeOidcAuthCode).toHaveBeenCalledWith(
+      expect.any(String), 42, "https://ab.example.com/openid/callback", OIDC_CLIENT_ID,
+      "", "", expect.objectContaining({ email: "auth@test.com" })
+    );
+  });
+
+  it("falls through to Google redirect with invalid cookie", async () => {
+    const res = await request(app)
+      .get("/auth/oidc/authorize")
+      .set("Cookie", "access_token=invalid-jwt-token")
+      .query({
+        response_type: "code",
+        client_id: OIDC_CLIENT_ID,
+        redirect_uri: "https://ab.example.com/openid/callback",
+        state: "test-state",
+      })
+      .expect(302);
+
+    expect(res.headers.location).toContain("accounts.google.com");
+  });
+
+  it("falls through to Google redirect with no cookie", async () => {
+    const res = await request(app)
+      .get("/auth/oidc/authorize")
+      .query({
+        response_type: "code",
+        client_id: OIDC_CLIENT_ID,
+        redirect_uri: "https://ab.example.com/openid/callback",
+        state: "test-state",
+      })
+      .expect(302);
+
+    expect(res.headers.location).toContain("accounts.google.com");
+  });
+
+  it("falls through to Google redirect when user not found in DB", async () => {
+    const token = jwt.sign(
+      { sub: "999", email: "gone@test.com", name: "Gone", role: "user" },
+      "change-me",
+      { expiresIn: "1h" }
+    );
+
+    mockDb.findUserById.mockResolvedValue(null);
+
+    const res = await request(app)
+      .get("/auth/oidc/authorize")
+      .set("Cookie", `access_token=${token}`)
+      .query({
+        response_type: "code",
+        client_id: OIDC_CLIENT_ID,
+        redirect_uri: "https://ab.example.com/openid/callback",
+        state: "test-state",
+      })
+      .expect(302);
+
+    expect(res.headers.location).toContain("accounts.google.com");
+  });
+});
+
+describe("OIDC Persistent Access Tokens", () => {
+  it("stores access token via storeOidcAccessToken on token exchange", async () => {
+    mockDb.consumeOidcAuthCode.mockResolvedValue({
+      code: "persist-code",
+      user_id: 7,
+      redirect_uri: "https://ab.example.com/cb",
+      client_id: OIDC_CLIENT_ID,
+      google_claims: { email: "persist@test.com", name: "Persist", sub: "g-p" },
+    });
+
+    const res = await request(app)
+      .post("/auth/oidc/token")
+      .send({
+        grant_type: "authorization_code",
+        code: "persist-code",
+        client_id: OIDC_CLIENT_ID,
+        client_secret: OIDC_CLIENT_SECRET,
+      })
+      .expect(200);
+
+    expect(mockDb.storeOidcAccessToken).toHaveBeenCalledWith(
+      res.body.access_token, 7,
+      expect.objectContaining({ email: "persist@test.com" }),
+      expect.any(Date)
+    );
   });
 });
