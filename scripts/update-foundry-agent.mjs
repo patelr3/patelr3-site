@@ -14,8 +14,17 @@
  *   node scripts/update-foundry-agent.mjs
  */
 
-import { AIProjectClient } from "@azure/ai-projects";
-import { DefaultAzureCredential } from "@azure/identity";
+import { createRequire } from "module";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
+
+// Resolve packages from auth-api/node_modules (they live there, not in scripts/)
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const authApiDir = resolve(__dirname, "..", "auth-api");
+const require = createRequire(resolve(authApiDir, "index.js"));
+
+const { AIProjectClient } = require("@azure/ai-projects");
+const { DefaultAzureCredential } = require("@azure/identity");
 
 const AGENT_NAME = "sunnieai";
 const MODEL = process.env.FOUNDRY_MODEL || "gpt-4.1";

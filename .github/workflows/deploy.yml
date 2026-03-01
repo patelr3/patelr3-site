@@ -157,7 +157,6 @@ jobs:
         working-directory: auth-api
         run: |
           npm install --omit=dev --ignore-scripts 2>/dev/null
-          NODE_PATH=node_modules \
           FOUNDRY_PROJECT_ENDPOINT="${{ steps.secrets.outputs.foundry_endpoint }}" \
           FOUNDRY_MCP_CONNECTION_ID="${{ steps.secrets.outputs.mcp_connection_id }}" \
           node ../scripts/update-foundry-agent.mjs
