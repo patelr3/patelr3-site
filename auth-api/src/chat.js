@@ -533,6 +533,22 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           break;
         }
 
+        // Handle stream timeout or abnormal termination (no completion event)
+        if (!result.status) {
+          logger.error("Stream ended without completion event", { attempt: attempt + 1, label });
+          if (attempt < MAX_ATTEMPTS - 1) {
+            await new Promise(r => setTimeout(r, 2000));
+            res.write(`data: ${JSON.stringify({ type: "response.in_progress" })}\n\n`);
+            continue;
+          }
+          const errMsg = "\n\n⚠️ The request timed out. Please try again.";
+          assistantText += errMsg;
+          res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
+          agentSpan.setStatus({ code: SpanStatusCode.ERROR, message: "stream_timeout" });
+          break;
+        }
+
         // Handle continuation (incomplete or tool-only output)
         let responseId = result.responseId;
         let lastStatus = result.status;
@@ -561,7 +577,11 @@ router.post("/threads/:threadId/messages", async (req, res) => {
             )),
           });
           if (!contRes.ok) {
-            logger.error("Continuation failed", { round: continuationRound, status: contRes.status });
+            logger.error("Continuation HTTP failed", { round: continuationRound, status: contRes.status });
+            const errMsg = "\n\n⚠️ I encountered an error while completing my analysis. Please try again.";
+            assistantText += errMsg;
+            res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
             break;
           }
           const contResult = await streamFoundryResponse(contRes, `cont#${continuationRound}`);
@@ -571,9 +591,21 @@ router.post("/threads/:threadId/messages", async (req, res) => {
           lastOutput = contResult.output;
 
           if (contResult.status === "failed") {
-            logger.error("Continuation failed", { round: continuationRound });
+            logger.error("Continuation response failed", { round: continuationRound });
+            const errMsg = "\n\n⚠️ I had trouble completing that request. Could you try rephrasing or breaking it into smaller questions?";
+            assistantText += errMsg;
+            res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
             break;
           }
+        }
+
+        if (continuationRound >= MAX_CONTINUATIONS) {
+          logger.warn("Max continuations reached", { round: continuationRound, max: MAX_CONTINUATIONS });
+          const errMsg = "\n\n⚠️ This request required too many steps. Please try breaking it into smaller questions.";
+          assistantText += errMsg;
+          res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
         }
 
         agentSpan.setAttributes({ attempt: attempt + 1, continuations: continuationRound });
@@ -584,6 +616,12 @@ router.post("/threads/:threadId/messages", async (req, res) => {
       });
     } catch (streamErr) {
       logger.error("Stream error", { error: streamErr.message });
+      try {
+        const errMsg = "\n\n⚠️ I encountered an unexpected error. Please try again.";
+        assistantText += errMsg;
+        res.write(`data: ${JSON.stringify({ type: "error.correlation", correlationId })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: errMsg })}\n\n`);
+      } catch { /* client gone */ }
     } finally {
       clearInterval(heartbeat);
       res.end();
