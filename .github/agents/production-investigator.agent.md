@@ -31,7 +31,7 @@ You are a production incident investigator for patelr3-site (https://www.arayosu
 - **Container Apps Environment:** `patelr3-cae` (westus2)
 - **ACR:** `patelr3acr`
 - **Key Vault:** `patelr3kv` + uniqueString suffix (`patelr3kvl3ytczhajsp7i`)
-- **Finance RG:** `patelr3-finance-rg` (separate repo: patelr3/actual-server-setup)
+- **Finance RG:** `patelr3-finance-rg` (separate repo: patelr3/sunniebudget)
 - **Domain:** `arayosun.com` via Cloudflare → ACA custom domain
 
 ### Request Flow (Production)

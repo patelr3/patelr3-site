@@ -29,11 +29,11 @@ See [docs/architecture.md](docs/architecture.md) for the full system design.
 | hello-world-restricted| Node.js 20 Express | Sample restricted micro-service                  |
 | postgres              | PostgreSQL 16      | User accounts, roles, services, access requests  |
 
-> The [ActualBudget MCP server](https://github.com/patelr3/actual-server-setup/tree/main/mcp-server) lives in the `actual-server-setup` submodule and is included in the local Docker Compose stack.
+> The [ActualBudget MCP server](https://github.com/patelr3/sunniebudget/tree/main/mcp-server) lives in the `sunniebudget` submodule and is included in the local Docker Compose stack.
 
 ### Multi-Tenant Finance Services
 
-This repo integrates with [actual-server-setup](https://github.com/patelr3/actual-server-setup) to provide per-user Actual Budget instances. The auth-api proxies deployment requests to the finance-api middleman service, which manages Azure Container Apps for each user.
+This repo integrates with [sunniebudget](https://github.com/patelr3/sunniebudget) to provide per-user Actual Budget instances. The auth-api proxies deployment requests to the finance-api middleman service, which manages Azure Container Apps for each user.
 
 ## Deployment
 

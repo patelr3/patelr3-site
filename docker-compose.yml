@@ -62,7 +62,7 @@ services:
     restart: unless-stopped
 
   mcp-server:
-    build: ./actual-server-setup/mcp-server
+    build: ./sunniebudget/mcp-server
     expose:
       - "8090"
     environment:

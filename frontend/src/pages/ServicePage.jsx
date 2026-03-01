@@ -29,7 +29,7 @@ const SERVICE_DETAILS = {
     purpose:
       "Actual Budget is an open-source personal finance tool. This service provisions a private Actual Budget instance for each user, fully isolated in the cloud.",
     docsUrl: "https://actualbudget.org/docs/",
-    sourceUrl: "https://github.com/patelr3/actual-server-setup",
+    sourceUrl: "https://github.com/patelr3/sunniebudget",
     architecture: [
       "Each user gets a dedicated Azure Container App running the Actual Budget server image.",
       "Persistent data is stored on an Azure File Share unique to the user, mounted into the container.",

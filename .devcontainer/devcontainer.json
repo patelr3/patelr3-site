@@ -14,7 +14,7 @@
   "customizations": {
     "codespaces": {
       "repositories": {
-        "patelr3/actual-server-setup": {
+        "patelr3/sunniebudget": {
           "permissions": {
             "contents": "write",
             "workflows": "write"

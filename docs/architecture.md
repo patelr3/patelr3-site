@@ -4,7 +4,7 @@
 
 A containerized personal website with Google OAuth sign-in, role-based access control (RBAC), and a micro-service architecture. Unauthenticated visitors see a public "About Me" page. After signing in via Google, additional tabs and backend services become available based on the user's assigned role.
 
-The site also integrates with [actual-server-setup](https://github.com/patelr3/actual-server-setup) to provide per-user Actual Budget instances deployed as Azure Container Apps.
+The site also integrates with [sunniebudget](https://github.com/patelr3/sunniebudget) to provide per-user Actual Budget instances deployed as Azure Container Apps.
 
 ---
 
@@ -88,7 +88,7 @@ In production, the frontend container runs Nginx, which serves the SPA and rever
 | **hello-world-restricted** | Node.js 20 Express | Sample restricted micro-service                      | 5001  |
 | **postgres**            | PostgreSQL 16        | Users, roles, services, access requests               | 5432  |
 
-> The MCP server code lives in [actual-server-setup/mcp-server](https://github.com/patelr3/actual-server-setup/tree/main/mcp-server) and is included in the local Docker Compose stack.
+> The MCP server code lives in [sunniebudget/mcp-server](https://github.com/patelr3/sunniebudget/tree/main/mcp-server) and is included in the local Docker Compose stack.
 
 ---
 
@@ -172,7 +172,7 @@ ActualBudget Instance                 auth-api (OIDC IdP)                  Googl
 
 ## ActualBudget MCP Server
 
-The [MCP server](https://github.com/patelr3/actual-server-setup/tree/main/mcp-server) provides 21 tools for AI agents to manage budgets via the Model Context Protocol. It integrates with Azure AI Foundry Agent Service.
+The [MCP server](https://github.com/patelr3/sunniebudget/tree/main/mcp-server) provides 21 tools for AI agents to manage budgets via the Model Context Protocol. It integrates with Azure AI Foundry Agent Service.
 
 ### Authentication Flow
 

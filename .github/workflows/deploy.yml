@@ -83,7 +83,7 @@ jobs:
           # MCP server (from submodule)
           docker build -t "${ACR_SERVER}/mcp-server:${{ env.IMAGE_TAG }}" \
                        -t "${ACR_SERVER}/mcp-server:latest" \
-                       ./actual-server-setup/mcp-server
+                       ./sunniebudget/mcp-server
           docker push "${ACR_SERVER}/mcp-server:${{ env.IMAGE_TAG }}"
           docker push "${ACR_SERVER}/mcp-server:latest"
 

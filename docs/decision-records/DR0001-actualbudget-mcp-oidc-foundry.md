@@ -58,7 +58,7 @@ We needed to:
 
 ### 3. MCP Server for ActualBudget
 
-**Decision:** Build a Node.js MCP server (`actual-server-setup/mcp-server/`) implementing the Model Context Protocol over HTTP streamable transport, providing AI agents full CRUD access to ActualBudget data.
+**Decision:** Build a Node.js MCP server (`sunniebudget/mcp-server/`) implementing the Model Context Protocol over HTTP streamable transport, providing AI agents full CRUD access to ActualBudget data.
 
 **Architecture:**
 ```
@@ -92,7 +92,7 @@ MCP Server (validates JWT, extracts userId)
 
 **Decision:** MCP server runs as a container in both local dev (docker-compose) and production (Azure Container App).
 
-- **Docker-compose:** `mcp-server` service built from `./actual-server-setup/mcp-server`, port 8090
+- **Docker-compose:** `mcp-server` service built from `./sunniebudget/mcp-server`, port 8090
 - **Production ACA:** `patelr3-mcp-server`, deployed via Bicep (`deployments/main.bicep`), `minReplicas: 1`
 - **CI/CD:** Deploy workflow updated with `--recurse-submodules` for the git submodule
 
@@ -149,7 +149,7 @@ MCP Server (validates JWT, extracts userId)
 - `scripts/setup-foundry-agent.py` — Foundry agent registration
 - `docs/foundry-setup.md` — Foundry setup guide
 
-**actual-server-setup (submodule):**
+**sunniebudget (submodule):**
 - `mcp-server/` — MCP server (21 tools, tests, Dockerfile)
 - `finance-api/src/deploy.js` — OpenID env var injection, token retrieval endpoint
 - `entrypoint.sh` — Service token injection into AB SQLite
