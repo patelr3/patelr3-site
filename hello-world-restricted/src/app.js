@@ -1,9 +1,19 @@
 import express from "express";
 import cookieParser from "cookie-parser";
-import jwt from "jsonwebtoken";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
-const JWT_SECRET = process.env.JWT_SECRET || "change-me";
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "";
+const GOOGLE_CERTS_URL = "https://www.googleapis.com/oauth2/v3/certs";
+const JWKS = createRemoteJWKSet(new URL(GOOGLE_CERTS_URL));
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost";
+
+async function verifyFirebaseToken(token) {
+  const { payload } = await jwtVerify(token, JWKS, {
+    issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
+    audience: FIREBASE_PROJECT_ID,
+  });
+  return payload;
+}
 
 const app = express();
 app.use(cookieParser());
@@ -19,16 +29,16 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get("/", (req, res) => {
+app.get("/", async (req, res) => {
   let user = req.headers["x-auth-user"] || "stranger";
   let role = req.headers["x-auth-role"] || "unknown";
 
-  const token = req.cookies?.access_token;
+  const token = req.cookies?.access_token || req.headers.authorization?.replace("Bearer ", "");
   if (token) {
     try {
-      const payload = jwt.verify(token, JWT_SECRET);
+      const payload = await verifyFirebaseToken(token);
       user = payload.email || user;
-      role = payload.role || role;
+      role = "user";
     } catch { /* use header values */ }
   }
 

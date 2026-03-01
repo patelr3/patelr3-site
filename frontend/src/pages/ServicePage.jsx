@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { authFetch } from "../App";
 import api from "../api";
 
 const DEPLOYABLE_SERVICES = ["actualbudget"];
@@ -78,7 +79,7 @@ export default function ServicePage({ user }) {
   const isDeployable = DEPLOYABLE_SERVICES.includes(slug);
 
   useEffect(() => {
-    fetch(api.services(), { credentials: "include" })
+    authFetch(api.services())
       .then((r) => (r.ok ? r.json() : []))
       .then((svcs) => {
         const svc = svcs.find((s) => s.slug === slug);
@@ -100,7 +101,7 @@ export default function ServicePage({ user }) {
 
   const fetchDeployStatus = async () => {
     try {
-      const res = await fetch(api.deploymentStatus(slug), { credentials: "include" });
+      const res = await authFetch(api.deploymentStatus(slug));
       const data = await res.json();
       setDeploy(data);
     } catch {
@@ -112,7 +113,7 @@ export default function ServicePage({ user }) {
     setDeployLoading(true);
     setDeployAction(method === "POST" ? "Creating" : method === "PUT" ? "Updating" : "Deleting");
     try {
-      const res = await fetch(api.deploymentStatus(slug), { method, credentials: "include" });
+      const res = await authFetch(api.deploymentStatus(slug), { method });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setDeploy({ status: "error", message: data.error || `Action failed (${res.status})` });
@@ -136,7 +137,7 @@ export default function ServicePage({ user }) {
       const url = api.serviceEndpoint(service.slug === "hello-world-restricted"
         ? "/api/hello-restricted/"
         : "/api/hello/");
-      const res = await fetch(url, { credentials: "include" });
+      const res = await authFetch(url);
       const data = await res.json();
       setResponse(JSON.stringify(data, null, 2));
     } catch (err) {

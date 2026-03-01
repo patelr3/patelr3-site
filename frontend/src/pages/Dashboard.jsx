@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { authFetch } from "../App";
 import api from "../api";
 
 export default function Dashboard({ user }) {
@@ -8,7 +9,7 @@ export default function Dashboard({ user }) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetch(api.services(), { credentials: "include" })
+    authFetch(api.services())
       .then((r) => (r.ok ? r.json() : []))
       .then(setServices)
       .catch(() => {})
@@ -16,10 +17,9 @@ export default function Dashboard({ user }) {
   }, []);
 
   const requestAccess = async (serviceId) => {
-    const res = await fetch(api.accessRequests(), {
+    const res = await authFetch(api.accessRequests(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify({ serviceId }),
     });
     if (res.ok || res.status === 409) {

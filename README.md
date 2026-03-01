@@ -1,11 +1,11 @@
 # patelr3-site
 
-A containerized personal website with Google OAuth sign-in, role-based access control (RBAC), and a micro-service architecture. Deployed to Azure Container Apps with CI/CD via GitHub Actions.
+A containerized personal website with Firebase Auth, role-based access control (RBAC), and a micro-service architecture. Deployed to Azure Container Apps with CI/CD via GitHub Actions.
 
 ## Quick Start
 
 ```bash
-# 1. Copy and fill in your Google OAuth credentials and secrets
+# 1. Copy and fill in your Firebase project credentials and secrets
 cp .env.example .env
 
 # 2. Build and start all containers
@@ -24,7 +24,7 @@ See [docs/architecture.md](docs/architecture.md) for the full system design.
 | --------------------- | ------------------ | ----------------------------------------------- |
 | nginx                 | Nginx 1.25         | Reverse proxy & auth gate (local dev only)       |
 | frontend              | React 18 (Vite)    | SPA — About Me, Dashboard, Admin Panel           |
-| auth-api              | Node.js 20 Express | Google OAuth, JWT, RBAC, OIDC IdP, deployment proxy |
+| auth-api              | Node.js 20 Express | Firebase Admin SDK, RBAC, OIDC IdP, deployment proxy |
 | hello-world           | Node.js 20 Express | Sample public micro-service                      |
 | hello-world-restricted| Node.js 20 Express | Sample restricted micro-service                  |
 | postgres              | PostgreSQL 16      | User accounts, roles, services, access requests  |

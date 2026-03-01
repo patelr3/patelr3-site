@@ -108,37 +108,61 @@ router.get("/authorize", async (req, res) => {
     return res.status(400).json({ error: "invalid_request", error_description: "redirect_uri is required" });
   }
 
-  // Skip Google redirect if user already has a valid access_token cookie
-  const accessTokenCookie = req.cookies?.access_token;
-  if (accessTokenCookie) {
+  // Skip Google redirect if user already authenticated (Firebase ID token or legacy JWT)
+  const accessToken = req.cookies?.access_token || req.headers.authorization?.replace("Bearer ", "");
+  if (accessToken) {
     try {
-      const payload = jwt.verify(accessTokenCookie, config.jwtSecret);
-      const user = await findUserById(Number(payload.sub));
+      // Try Firebase ID token first
+      const { getAuth: getFirebaseAuth } = await import("firebase-admin/auth");
+      const decoded = await getFirebaseAuth().verifyIdToken(accessToken);
+      const { upsertFirebaseUser } = await import("./db.js");
+      const user = await upsertFirebaseUser(decoded);
       if (user) {
-        // Generate auth code directly — skip Google OAuth
         const authCode = crypto.randomBytes(32).toString("hex");
-        const googleClaims = {
-          sub: user.google_id || String(user.id),
+        const claims = {
+          sub: user.firebase_uid || String(user.id),
           email: user.email,
           name: user.display_name,
           preferred_username: user.email,
           picture: user.avatar_url || "",
         };
-
         await storeOidcAuthCode(
           authCode, user.id, redirect_uri, client_id,
-          code_challenge || "", code_challenge_method || "", googleClaims,
+          code_challenge || "", code_challenge_method || "", claims,
         );
-
-        logger.info("OIDC authorize: skipped Google for authenticated user", { userId: user.id, clientId: client_id });
-
+        logger.info("OIDC authorize: skipped Google for Firebase user", { userId: user.id, clientId: client_id });
         const redirectUrl = new URL(redirect_uri);
         redirectUrl.searchParams.set("code", authCode);
         if (state) redirectUrl.searchParams.set("state", state);
         return res.redirect(redirectUrl.toString());
       }
     } catch {
-      // Cookie invalid or user not found — fall through to Google OAuth
+      // Firebase token invalid — try legacy JWT fallback
+      try {
+        const payload = jwt.verify(accessToken, config.jwtSecret);
+        const user = await findUserById(Number(payload.sub));
+        if (user) {
+          const authCode = crypto.randomBytes(32).toString("hex");
+          const claims = {
+            sub: user.google_id || String(user.id),
+            email: user.email,
+            name: user.display_name,
+            preferred_username: user.email,
+            picture: user.avatar_url || "",
+          };
+          await storeOidcAuthCode(
+            authCode, user.id, redirect_uri, client_id,
+            code_challenge || "", code_challenge_method || "", claims,
+          );
+          logger.info("OIDC authorize: skipped Google for legacy JWT user", { userId: user.id, clientId: client_id });
+          const redirectUrl = new URL(redirect_uri);
+          redirectUrl.searchParams.set("code", authCode);
+          if (state) redirectUrl.searchParams.set("state", state);
+          return res.redirect(redirectUrl.toString());
+        }
+      } catch {
+        // Both invalid — fall through to Google OAuth
+      }
     }
   }
 
@@ -154,7 +178,7 @@ router.get("/authorize", async (req, res) => {
     oidcState,
   };
 
-  // Redirect to Google OAuth — reuse existing passport strategy
+  // Redirect to Google OAuth directly (OIDC deferred migration — still uses Google credentials)
   const googleAuthUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   googleAuthUrl.searchParams.set("client_id", config.googleClientId);
   googleAuthUrl.searchParams.set("redirect_uri", `${config.frontendUrl}/api/auth/oidc/callback`);

@@ -1,8 +1,13 @@
+import { jest } from "@jest/globals";
 import request from "supertest";
-import jwt from "jsonwebtoken";
-import app from "../src/app.js";
 
-const SECRET = "change-me";
+const mockJwtVerify = jest.fn();
+jest.unstable_mockModule("jose", () => ({
+  createRemoteJWKSet: () => {},
+  jwtVerify: mockJwtVerify,
+}));
+
+const { default: app } = await import("../src/app.js");
 
 describe("GET /health", () => {
   it("returns 200 with status ok", async () => {
@@ -31,17 +36,20 @@ describe("GET /", () => {
     expect(res.body.role).toBe("admin");
   });
 
-  it("with valid JWT cookie returns greeting with JWT email", async () => {
-    const token = jwt.sign({ email: "bob@example.com", role: "editor" }, SECRET);
+  it("with valid Firebase token cookie returns greeting with email", async () => {
+    mockJwtVerify.mockResolvedValueOnce({
+      payload: { email: "bob@example.com", sub: "firebase-uid" },
+    });
     const res = await request(app)
       .get("/")
-      .set("Cookie", `access_token=${token}`);
+      .set("Cookie", "access_token=valid.firebase.token");
     expect(res.status).toBe(200);
     expect(res.body.message).toBe("Hello, bob@example.com!");
-    expect(res.body.role).toBe("editor");
+    expect(res.body.role).toBe("user");
   });
 
-  it("with invalid JWT cookie falls back to headers or defaults", async () => {
+  it("with invalid token falls back to headers or defaults", async () => {
+    mockJwtVerify.mockRejectedValueOnce(new Error("invalid token"));
     const res = await request(app)
       .get("/")
       .set("Cookie", "access_token=bad.token.value")

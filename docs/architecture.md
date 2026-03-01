@@ -2,7 +2,7 @@
 
 ## Overview
 
-A containerized personal website with Google OAuth sign-in, role-based access control (RBAC), and a micro-service architecture. Unauthenticated visitors see a public "About Me" page. After signing in via Google, additional tabs and backend services become available based on the user's assigned role.
+A containerized personal website with Firebase Auth, role-based access control (RBAC), and a micro-service architecture. Unauthenticated visitors see a public "About Me" page. After signing in via Firebase (Google provider or email/password), additional tabs and backend services become available based on the user's assigned role.
 
 The site also integrates with [sunniebudget](https://github.com/patelr3/sunniebudget) to provide per-user Actual Budget instances deployed as Azure Container Apps.
 
@@ -68,10 +68,6 @@ In production, the frontend container runs Nginx, which serves the SPA and rever
                     │ + Blob Storage (backups)      │
                     └──────────────────────────────┘
 
-   ┌──────────────────────────────────────────────┐
-   │ Azure AI Foundry Agent Service               │
-   │ (MCP Client → calls MCP server tools)        │
-   └──────────────────────────────────────────────┘
 ```
 
 ---
@@ -82,7 +78,7 @@ In production, the frontend container runs Nginx, which serves the SPA and rever
 | ----------------------- | -------------------- | --------------------------------------------------- | ----- |
 | **nginx**               | Nginx 1.25           | Reverse proxy, auth gate (local dev only)            | 80    |
 | **frontend**            | React 18 (Vite) + Nginx | SPA + API reverse proxy (same-origin in prod)     | 3000  |
-| **auth-api**            | Node.js 20 Express   | Google OAuth 2.0, JWT, RBAC, OIDC IdP, deploy proxy  | 8000  |
+| **auth-api**            | Node.js 20 Express   | Firebase Admin SDK, RBAC, OIDC IdP, deploy proxy     | 8000  |
 | **mcp-server**          | Node.js 20 MCP SDK   | ActualBudget MCP server (Azure AI Foundry)           | 8090  |
 | **hello-world**         | Node.js 20 Express   | Sample public micro-service                          | 5000  |
 | **hello-world-restricted** | Node.js 20 Express | Sample restricted micro-service                      | 5001  |
@@ -94,13 +90,13 @@ In production, the frontend container runs Nginx, which serves the SPA and rever
 
 ## Authentication & Authorization
 
-### OAuth 2.0 Flow (Google)
+### Firebase Auth Flow
 
-1. User clicks "Sign in with Google" on the frontend.
-2. Frontend redirects to `GET /api/auth/login/google`.
-3. Auth API (via Passport.js GoogleStrategy) redirects to Google's consent screen.
-4. Google redirects back with an authorization code.
-5. Auth API exchanges the code for user info, upserts in Postgres, and issues a signed JWT as an `HttpOnly`, `SameSite=Lax` cookie.
+1. User clicks "Sign in with Google" (or uses email/password) on the frontend.
+2. Frontend authenticates via the Firebase JS SDK (client-side).
+3. Firebase returns an ID token to the frontend.
+4. Frontend sends the Firebase ID token to `POST /api/auth/login/firebase`.
+5. Auth API verifies the token via the Firebase Admin SDK, upserts the user in Postgres, and issues a signed JWT as an `HttpOnly`, `SameSite=Lax` cookie.
 6. Frontend detects auth via `/api/auth/me` and renders the authenticated UI.
 
 ### Role-Based Access Control (RBAC)
@@ -129,6 +125,8 @@ Services are stored in a `services` table with `is_visible` and `is_restricted` 
 ## OIDC Identity Provider
 
 Auth-api acts as an **OpenID Connect Identity Provider** wrapping Google OAuth. This enables all ActualBudget instances to use a single Google OAuth redirect URI through auth-api.
+
+> **Note:** The OIDC IdP currently still uses Google OAuth directly for the ActualBudget login flow. Migration to Firebase Auth is planned for a future iteration.
 
 ### Endpoints
 
@@ -228,9 +226,8 @@ Each user can create their own Actual Budget instance via the ServicePage UI.
 -- Users
 CREATE TABLE users (
     id              SERIAL PRIMARY KEY,
-    google_id       VARCHAR(255) UNIQUE,
+    firebase_uid    VARCHAR(255) UNIQUE,
     email           VARCHAR(255) UNIQUE NOT NULL,
-    password_hash   VARCHAR(255),
     display_name    VARCHAR(255),
     avatar_url      TEXT,
     role            VARCHAR(50) DEFAULT 'user',
@@ -269,10 +266,6 @@ CREATE TABLE oidc_auth_codes (
     expires_at      TIMESTAMPTZ DEFAULT NOW() + INTERVAL '5 minutes'
 );
 
--- Chat threads & messages (encrypted at rest, see docs/security.md)
-CREATE TABLE chat_threads (id SERIAL PRIMARY KEY, user_id INT, title VARCHAR(255), summary TEXT);
-CREATE TABLE chat_messages (id SERIAL PRIMARY KEY, thread_id INT, role VARCHAR(20), content TEXT);
-CREATE TABLE user_vault_keys (user_id INT PRIMARY KEY, wrapped_key TEXT, key_type VARCHAR(20));
 ```
 
 ---
@@ -281,8 +274,7 @@ CREATE TABLE user_vault_keys (user_id INT PRIMARY KEY, wrapped_key TEXT, key_typ
 
 | Variable                  | Description                                        |
 | ------------------------- | -------------------------------------------------- |
-| `GOOGLE_CLIENT_ID`        | Google OAuth 2.0 client ID                         |
-| `GOOGLE_CLIENT_SECRET`    | Google OAuth 2.0 client secret                     |
+| `FIREBASE_PROJECT_ID`     | Firebase project ID (used by Admin SDK)            |
 | `JWT_SECRET`              | Secret key for signing JWTs                        |
 | `POSTGRES_USER`           | Postgres username                                  |
 | `POSTGRES_PASSWORD`       | Postgres password                                  |
@@ -293,18 +285,29 @@ CREATE TABLE user_vault_keys (user_id INT PRIMARY KEY, wrapped_key TEXT, key_typ
 | `HELLO_RESTRICTED_API_UPSTREAM` | Internal URL of hello-world-restricted       |
 | `FINANCE_API_URL`         | Internal URL of finance-api (deployment proxy)     |
 | `FINANCE_API_KEY`         | Shared API key for finance-api authentication      |
+| `GOOGLE_CLIENT_ID`        | Google OAuth 2.0 client ID (optional; OIDC IdP only) |
+| `GOOGLE_CLIENT_SECRET`    | Google OAuth 2.0 client secret (optional; OIDC IdP only) |
 | `OIDC_CLIENT_ID`          | Client ID for OIDC provider (ActualBudget uses)    |
 | `OIDC_CLIENT_SECRET`      | Client secret for OIDC provider                    |
-| `FOUNDRY_PROJECT_ENDPOINT`| Azure AI Foundry project endpoint for SunnieAI     |
-| `FOUNDRY_AGENT_ID`        | Registered Foundry agent ID for SunnieAI           |
-| `MCP_SERVER_URL`          | External MCP server URL (for per-request tool auth) |
-| `OIDC_FOUNDRY_CLIENT_SECRET` | Client secret for the Foundry OIDC client (`foundry-agent`) |
-| `FOUNDRY_MCP_CONNECTION_ID`  | Foundry project connection ID for OAuth MCP passthrough |
 | `OIDC_JWKS_URL`           | JWKS endpoint for OIDC token validation (mcp-server) |
-| `CHAT_ENCRYPTION_KEY`     | 256-bit hex key for chat encryption (see [security.md](security.md)) |
+| `VITE_FIREBASE_API_KEY`   | Firebase API key (frontend)                        |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Firebase Auth domain (frontend)                  |
+| `VITE_FIREBASE_PROJECT_ID` | Firebase project ID (frontend)                    |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Azure App Insights connection string |
 
 **Production secrets** are stored in Azure Key Vault (`patelr3kvl3ytczhajsp7i`) and referenced by ACAs via `keyVaultUrl` + a shared user-assigned managed identity (`patelr3-kv-reader`). Updating a secret in AKV automatically propagates to all ACAs within 30 minutes.
+
+| AKV Secret | Used By |
+|------------|---------|
+| `firebase-api-key` | frontend (build arg) |
+| `firebase-auth-domain` | frontend (build arg) |
+| `firebase-project-id` | frontend (build arg), auth-api, hello-world, hello-world-restricted, mcp-server |
+| `google-client-id`, `google-client-secret` | auth-api (OIDC only) |
+| `jwt-secret` | auth-api (OIDC only) |
+| `database-url` | auth-api |
+| `finance-api-key` | auth-api, mcp-server |
+| `oidc-signing-key-jwk` | auth-api |
+| `postgres-password` | postgres (Bicep param) |
 
 ---
 

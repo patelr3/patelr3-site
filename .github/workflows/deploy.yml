@@ -59,12 +59,22 @@ jobs:
       - name: Log in to ACR
         run: az acr login --name ${{ env.ACR_NAME }}
 
+      - name: Read Firebase config from Key Vault
+        run: |
+          KV_NAME=$(az keyvault list -g ${{ env.RESOURCE_GROUP }} --query "[0].name" -o tsv)
+          echo "VITE_FIREBASE_API_KEY=$(az keyvault secret show --vault-name "$KV_NAME" --name firebase-api-key --query value -o tsv)" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_AUTH_DOMAIN=$(az keyvault secret show --vault-name "$KV_NAME" --name firebase-auth-domain --query value -o tsv)" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_PROJECT_ID=$(az keyvault secret show --vault-name "$KV_NAME" --name firebase-project-id --query value -o tsv)" >> "$GITHUB_ENV"
+
       - name: Build & push images
         run: |
           ACR_SERVER="${{ env.ACR_NAME }}.azurecr.io"
 
-          # Frontend — nginx serves SPA + proxies API (no build args needed)
+          # Frontend — Firebase config baked in via build args from AKV
           docker build \
+            --build-arg VITE_FIREBASE_API_KEY="${{ env.VITE_FIREBASE_API_KEY }}" \
+            --build-arg VITE_FIREBASE_AUTH_DOMAIN="${{ env.VITE_FIREBASE_AUTH_DOMAIN }}" \
+            --build-arg VITE_FIREBASE_PROJECT_ID="${{ env.VITE_FIREBASE_PROJECT_ID }}" \
             -t "${ACR_SERVER}/frontend:${{ env.IMAGE_TAG }}" \
             -t "${ACR_SERVER}/frontend:latest" \
             ./frontend

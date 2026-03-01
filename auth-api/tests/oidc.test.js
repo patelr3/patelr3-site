@@ -4,8 +4,7 @@ import { jest } from "@jest/globals";
 const mockDb = {
   initDb: jest.fn(),
   findUserByEmail: jest.fn(),
-  createLocalUser: jest.fn(),
-  upsertGoogleUser: jest.fn(),
+  upsertFirebaseUser: jest.fn(),
   listServices: jest.fn(),
   getServiceBySlug: jest.fn(),
   updateService: jest.fn(),
@@ -18,12 +17,8 @@ const mockDb = {
   findUserById: jest.fn(),
   listUsers: jest.fn(),
   updateUserRole: jest.fn(),
-  updateUserPassword: jest.fn(),
   touchLastLogin: jest.fn(),
   deleteUser: jest.fn(),
-  createResetToken: jest.fn(),
-  findResetToken: jest.fn(),
-  deleteResetToken: jest.fn(),
   storeOidcAuthCode: jest.fn(),
   consumeOidcAuthCode: jest.fn(),
   storeOidcAccessToken: jest.fn(),
@@ -31,46 +26,25 @@ const mockDb = {
   deleteExpiredOidcTokens: jest.fn().mockResolvedValue(),
   storeOidcRefreshToken: jest.fn(),
   consumeOidcRefreshToken: jest.fn(),
-  getOrCreateThread: jest.fn(),
-  getUserThreads: jest.fn(),
-  deleteThread: jest.fn(),
-  createThread: jest.fn(),
-  getThreadById: jest.fn(),
-  addChatMessage: jest.fn(),
-  getChatMessages: jest.fn(),
-  getChatMessageCount: jest.fn(),
-  updateThreadSummary: jest.fn(),
-  getThreadSummary: jest.fn(),
-  getThreadLastResponseId: jest.fn().mockResolvedValue(null),
-  updateThreadLastResponseId: jest.fn().mockResolvedValue(),
-  getThreadFoundryConversationId: jest.fn().mockResolvedValue(null),
-  updateThreadFoundryConversationId: jest.fn().mockResolvedValue(),
-  storeVaultKey: jest.fn(),
-  getWrappedVaultKey: jest.fn(),
 };
 
 jest.unstable_mockModule("../src/db.js", () => mockDb);
 
-// Mock @azure/identity to avoid real Azure calls in tests
-jest.unstable_mockModule("@azure/identity", () => ({
-  DefaultAzureCredential: jest.fn().mockImplementation(() => ({
-    getToken: jest.fn().mockResolvedValue({ token: "mock-azure-token" }),
-  })),
+// Mock firebase-admin/app and firebase-admin/auth
+jest.unstable_mockModule("firebase-admin/app", () => ({
+  initializeApp: jest.fn(),
 }));
 
-jest.unstable_mockModule("@azure/ai-projects", () => ({
-  AIProjectClient: jest.fn().mockImplementation(() => ({
-    getOpenAIClient: jest.fn().mockReturnValue({
-      responses: { create: jest.fn().mockResolvedValue({ id: "mock", output: [], status: "completed" }) },
-      conversations: { create: jest.fn().mockResolvedValue({ id: "conv_mock" }) },
-    }),
+const mockVerifyIdToken = jest.fn();
+jest.unstable_mockModule("firebase-admin/auth", () => ({
+  getAuth: jest.fn(() => ({
+    verifyIdToken: mockVerifyIdToken,
   })),
 }));
 
 const { default: app } = await import("../src/app.js");
 import request from "supertest";
 import crypto from "crypto";
-import jwt from "jsonwebtoken";
 
 const OIDC_CLIENT_ID = "actualbudget";
 const OIDC_CLIENT_SECRET = "change-me";
@@ -651,23 +625,25 @@ describe("OIDC Refresh Token Grant", () => {
 
 describe("OIDC Skip-Google for Authenticated Users", () => {
   it("redirects directly to redirect_uri with auth code when user has valid cookie", async () => {
-    const token = jwt.sign(
-      { sub: "42", email: "auth@test.com", name: "Auth User", role: "user" },
-      "change-me",
-      { expiresIn: "1h" }
-    );
-
-    mockDb.findUserById.mockResolvedValue({
+    const dbUser = {
       id: 42,
       email: "auth@test.com",
       display_name: "Auth User",
-      google_id: "g-42",
+      firebase_uid: "fb-42",
       avatar_url: "https://example.com/pic.jpg",
+    };
+    mockVerifyIdToken.mockResolvedValue({
+      uid: "fb-42",
+      email: "auth@test.com",
+      name: "Auth User",
+      picture: "https://example.com/pic.jpg",
+      firebase: { sign_in_provider: "google.com" },
     });
+    mockDb.upsertFirebaseUser.mockResolvedValue(dbUser);
 
     const res = await request(app)
       .get("/auth/oidc/authorize")
-      .set("Cookie", `access_token=${token}`)
+      .set("Cookie", "access_token=mock-firebase-id-token")
       .query({
         response_type: "code",
         client_id: OIDC_CLIENT_ID,
@@ -690,9 +666,11 @@ describe("OIDC Skip-Google for Authenticated Users", () => {
   });
 
   it("falls through to Google redirect with invalid cookie", async () => {
+    mockVerifyIdToken.mockRejectedValue(new Error("Invalid token"));
+
     const res = await request(app)
       .get("/auth/oidc/authorize")
-      .set("Cookie", "access_token=invalid-jwt-token")
+      .set("Cookie", "access_token=invalid-firebase-token")
       .query({
         response_type: "code",
         client_id: OIDC_CLIENT_ID,
@@ -719,17 +697,17 @@ describe("OIDC Skip-Google for Authenticated Users", () => {
   });
 
   it("falls through to Google redirect when user not found in DB", async () => {
-    const token = jwt.sign(
-      { sub: "999", email: "gone@test.com", name: "Gone", role: "user" },
-      "change-me",
-      { expiresIn: "1h" }
-    );
-
-    mockDb.findUserById.mockResolvedValue(null);
+    mockVerifyIdToken.mockResolvedValue({
+      uid: "fb-999",
+      email: "gone@test.com",
+      name: "Gone",
+      firebase: { sign_in_provider: "google.com" },
+    });
+    mockDb.upsertFirebaseUser.mockResolvedValue(null);
 
     const res = await request(app)
       .get("/auth/oidc/authorize")
-      .set("Cookie", `access_token=${token}`)
+      .set("Cookie", "access_token=mock-firebase-token")
       .query({
         response_type: "code",
         client_id: OIDC_CLIENT_ID,

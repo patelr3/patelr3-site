@@ -1,13 +1,7 @@
-// API routes — always go through the same-origin nginx proxy (/api/*)
-// Both local dev and production use nginx to proxy API requests.
-
 const api = {
-  // Auth
+  // Auth (Firebase handles login/register — only profile endpoints remain)
   authMe: () => "/api/auth/me",
-  authLogin: () => "/api/auth/login",
-  authRegister: () => "/api/auth/register",
   authLogout: () => "/api/auth/logout",
-  authLoginGoogle: () => "/api/auth/login/google",
 
   // Services
   services: () => "/api/auth/services",
@@ -20,9 +14,6 @@ const api = {
 
   // Account
   account: () => "/api/auth/account",
-  changePassword: () => "/api/auth/change-password",
-  forgotPassword: () => "/api/auth/forgot-password",
-  resetPassword: () => "/api/auth/reset-password",
 
   // Admin: users
   users: () => "/api/auth/users",
@@ -32,7 +23,6 @@ const api = {
   // Deployments
   deploymentStatus: (slug) => `/api/auth/deployments/${slug}`,
 
-  // Service endpoint URLs are already /api/* paths from the database
   serviceEndpoint: (endpointUrl) => endpointUrl,
 };
 

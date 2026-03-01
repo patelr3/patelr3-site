@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { authFetch } from "../App";
 import api from "../api";
 
 export default function AdminPanel({ user }) {
@@ -16,9 +17,9 @@ export default function AdminPanel({ user }) {
   const fetchData = async () => {
     try {
       const [svcsRes, reqsRes, usersRes] = await Promise.all([
-        fetch(api.services(), { credentials: "include" }),
-        fetch(api.accessRequests(), { credentials: "include" }),
-        fetch(api.users(), { credentials: "include" }),
+        authFetch(api.services()),
+        authFetch(api.accessRequests()),
+        authFetch(api.users()),
       ]);
       if (svcsRes.ok) setServices(await svcsRes.json());
       if (reqsRes.ok) setRequests(await reqsRes.json());
@@ -31,10 +32,9 @@ export default function AdminPanel({ user }) {
 
   const toggleField = async (svcId, field, currentValue) => {
     const body = { [field]: !currentValue };
-    const res = await fetch(api.serviceUpdate(svcId), {
+    const res = await authFetch(api.serviceUpdate(svcId), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify(body),
     });
     if (res.ok) fetchData();
@@ -44,15 +44,14 @@ export default function AdminPanel({ user }) {
     const url = action === "approve"
       ? api.accessRequestApprove(requestId)
       : api.accessRequestDeny(requestId);
-    const res = await fetch(url, { method: "POST", credentials: "include" });
+    const res = await authFetch(url, { method: "POST" });
     if (res.ok) fetchData();
   };
 
   const changeRole = async (userId, newRole) => {
-    const res = await fetch(api.userRole(userId), {
+    const res = await authFetch(api.userRole(userId), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify({ role: newRole }),
     });
     if (res.ok) {
@@ -63,9 +62,8 @@ export default function AdminPanel({ user }) {
 
   const handleDeleteUser = async (userId, email) => {
     if (!confirm(`Delete account ${email}? This cannot be undone.`)) return;
-    const res = await fetch(api.userDelete(userId), {
+    const res = await authFetch(api.userDelete(userId), {
       method: "DELETE",
-      credentials: "include",
     });
     if (res.ok) fetchData();
   };

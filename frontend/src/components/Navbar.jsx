@@ -4,7 +4,6 @@ import logo from "/arayosun-logo.png";
 
 const PAGE_TITLES = {
   "/dashboard": "Dashboard",
-  "/sunnieai": "☀️ SunnieAI",
   "/about": "About Me",
   "/admin": "Admin",
   "/account": "Account",
@@ -50,12 +49,6 @@ export default function Navbar({ user, onLogout }) {
         {user && (
           <NavLink to="/dashboard" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} onClick={handleNavClick}>
             Dashboard
-          </NavLink>
-        )}
-
-        {user && (
-          <NavLink to="/sunnieai" className={({ isActive }) => `tab ${isActive ? "active" : ""}`} onClick={handleNavClick}>
-            ☀️ SunnieAI
           </NavLink>
         )}
 

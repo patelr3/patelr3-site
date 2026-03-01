@@ -1,8 +1,5 @@
 import pg from "pg";
-import bcrypt from "bcryptjs";
 import config from "./config.js";
-import { encrypt, decrypt, isEncrypted } from "./crypto.js";
-
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 
 const ADMIN_EMAIL = "16patelr@gmail.com";
@@ -29,6 +26,11 @@ export async function initDb() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
     EXCEPTION WHEN others THEN NULL;
     END $$
+  `);
+
+  // Add firebase_uid column for Firebase migration
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid VARCHAR(255) UNIQUE
   `);
 
   await pool.query(`
@@ -95,16 +97,6 @@ export async function initDb() {
     }
   }
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS password_reset_tokens (
-      id          SERIAL PRIMARY KEY,
-      user_id     INT REFERENCES users(id) ON DELETE CASCADE,
-      token       VARCHAR(255) UNIQUE NOT NULL,
-      expires_at  TIMESTAMPTZ NOT NULL,
-      created_at  TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-
   // OIDC authorization codes (auth-api as OIDC IdP for ActualBudget instances)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS oidc_auth_codes (
@@ -146,105 +138,51 @@ export async function initDb() {
   // Widen token column if it was previously VARCHAR(255)
   await pool.query(`ALTER TABLE oidc_refresh_tokens ALTER COLUMN token TYPE TEXT`);
 
-  // Chat threads (user conversations)
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS chat_threads (
-      id              SERIAL PRIMARY KEY,
-      user_id         INT REFERENCES users(id) ON DELETE CASCADE,
-      foundry_thread_id VARCHAR(255) NOT NULL DEFAULT '',
-      title           VARCHAR(255) DEFAULT 'New conversation',
-      summary         TEXT DEFAULT NULL,
-      created_at      TIMESTAMPTZ DEFAULT NOW(),
-      updated_at      TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-
-  // Chat messages (local message storage for summarization)
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS chat_messages (
-      id              SERIAL PRIMARY KEY,
-      thread_id       INT REFERENCES chat_threads(id) ON DELETE CASCADE,
-      role            VARCHAR(20) NOT NULL,
-      content         TEXT NOT NULL,
-      created_at      TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-
-  // Add summary column if missing (migration for existing DBs)
-  await pool.query(`
-    ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS summary TEXT DEFAULT NULL
-  `);
-
-  // Add last_response_id column for Foundry response chaining (OAuth state persistence)
-  await pool.query(`
-    ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS last_response_id TEXT DEFAULT NULL
-  `);
-
-  // Add foundry_conversation_id for per-user Conversations API isolation
-  await pool.query(`
-    ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS foundry_conversation_id TEXT DEFAULT NULL
-  `);
-
-  // Per-user vault keys for chat encryption (Bitwarden-inspired)
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS user_vault_keys (
-      user_id     INT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-      wrapped_key TEXT NOT NULL,
-      key_type    VARCHAR(20) NOT NULL,
-      created_at  TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-
-  // Seed a test user in local dev only (no AUTH_API_URL set)
-  if (!config.authApiUrl) {
-    const existing = await pool.query("SELECT id FROM users WHERE email = 'test@local.dev'");
-    if (existing.rows.length === 0) {
-      const hash = await bcrypt.hash("TestPass123", 12);
-      await pool.query(
-        `INSERT INTO users (email, password_hash, display_name, role)
-         VALUES ('test@local.dev', $1, 'Test User', 'user')
-         ON CONFLICT (email) DO NOTHING`,
-        [hash]
-      );
-    }
-  }
 }
 
-export async function upsertGoogleUser(profile) {
-  const email = profile.emails[0].value;
+export async function upsertFirebaseUser(firebaseUser) {
+  const { uid, email, name, picture } = firebaseUser;
+  const displayName = name || firebaseUser.display_name || email?.split("@")[0] || "User";
   const role = email === ADMIN_EMAIL ? "admin" : "user";
 
-  const { rows } = await pool.query(
-    "SELECT * FROM users WHERE google_id = $1",
-    [profile.id]
+  // Try to find existing user by firebase_uid
+  const { rows: existing } = await pool.query(
+    "SELECT * FROM users WHERE firebase_uid = $1",
+    [uid]
   );
-
-  if (rows.length > 0) {
+  if (existing.length > 0) {
+    // Update display name and avatar on each login
     const { rows: updated } = await pool.query(
-      `UPDATE users SET display_name = $1, avatar_url = $2, role = $3, updated_at = NOW()
-       WHERE google_id = $4 RETURNING *`,
-      [profile.displayName, profile.photos?.[0]?.value || "", role, profile.id]
+      `UPDATE users SET display_name = COALESCE($1, display_name), avatar_url = COALESCE($2, avatar_url), 
+       last_login_at = NOW(), updated_at = NOW() WHERE firebase_uid = $3 RETURNING *`,
+      [displayName, picture || "", uid]
     );
     return updated[0];
   }
 
-  const { rows: existing } = await pool.query(
-    "SELECT * FROM users WHERE email = $1",
-    [email]
-  );
-  if (existing.length > 0) {
-    const { rows: linked } = await pool.query(
-      `UPDATE users SET google_id = $1, display_name = $2, avatar_url = $3, role = $4, updated_at = NOW()
-       WHERE email = $5 RETURNING *`,
-      [profile.id, profile.displayName, profile.photos?.[0]?.value || "", role, email]
+  // Try to find by email (migration from old system)
+  if (email) {
+    const { rows: byEmail } = await pool.query(
+      "SELECT * FROM users WHERE email = $1",
+      [email]
     );
-    return linked[0];
+    if (byEmail.length > 0) {
+      // Link existing account to Firebase UID
+      const { rows: linked } = await pool.query(
+        `UPDATE users SET firebase_uid = $1, display_name = COALESCE($2, display_name), 
+         avatar_url = COALESCE($3, avatar_url), role = $4, last_login_at = NOW(), updated_at = NOW()
+         WHERE email = $5 RETURNING *`,
+        [uid, displayName, picture || "", role, email]
+      );
+      return linked[0];
+    }
   }
 
+  // Create new user
   const { rows: inserted } = await pool.query(
-    `INSERT INTO users (google_id, email, display_name, avatar_url, role)
+    `INSERT INTO users (firebase_uid, email, display_name, avatar_url, role)
      VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [profile.id, email, profile.displayName, profile.photos?.[0]?.value || "", role]
+    [uid, email || "", displayName, picture || "", role]
   );
   return inserted[0];
 }
@@ -252,16 +190,6 @@ export async function upsertGoogleUser(profile) {
 export async function findUserByEmail(email) {
   const { rows } = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
   return rows[0] || null;
-}
-
-export async function createLocalUser(email, passwordHash, displayName) {
-  const role = email === ADMIN_EMAIL ? "admin" : "user";
-  const { rows } = await pool.query(
-    `INSERT INTO users (email, password_hash, display_name, role)
-     VALUES ($1, $2, $3, $4) RETURNING *`,
-    [email, passwordHash, displayName, role]
-  );
-  return rows[0];
 }
 
 // ── Service queries ────────────────────────────────────────────
@@ -376,13 +304,6 @@ export async function updateUserRole(userId, role) {
   return rows[0];
 }
 
-export async function updateUserPassword(userId, passwordHash) {
-  await pool.query(
-    `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
-    [passwordHash, userId]
-  );
-}
-
 export async function touchLastLogin(userId) {
   await pool.query(
     `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
@@ -393,32 +314,6 @@ export async function touchLastLogin(userId) {
 export async function deleteUser(userId) {
   const { rowCount } = await pool.query("DELETE FROM users WHERE id = $1", [userId]);
   return rowCount > 0;
-}
-
-// ── Password reset token queries ───────────────────────────────
-
-export async function createResetToken(userId, token, expiresAt) {
-  // Remove any existing tokens for this user
-  await pool.query("DELETE FROM password_reset_tokens WHERE user_id = $1", [userId]);
-  const { rows } = await pool.query(
-    `INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, $3) RETURNING *`,
-    [userId, token, expiresAt]
-  );
-  return rows[0];
-}
-
-export async function findResetToken(token) {
-  const { rows } = await pool.query(
-    `SELECT prt.*, u.email FROM password_reset_tokens prt
-     JOIN users u ON prt.user_id = u.id
-     WHERE prt.token = $1 AND prt.expires_at > NOW()`,
-    [token]
-  );
-  return rows[0] || null;
-}
-
-export async function deleteResetToken(token) {
-  await pool.query("DELETE FROM password_reset_tokens WHERE token = $1", [token]);
 }
 
 // ── OIDC authorization code queries ────────────────────────────
@@ -480,169 +375,6 @@ export async function consumeOidcRefreshToken(token) {
     [token]
   );
   return rows[0] || null;
-}
-
-// ── Vault key queries ──────────────────────────────────────────
-
-export async function storeVaultKey(userId, wrappedKey, keyType) {
-  await pool.query(
-    `INSERT INTO user_vault_keys (user_id, wrapped_key, key_type)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (user_id) DO UPDATE SET wrapped_key = $2, key_type = $3`,
-    [userId, wrappedKey, keyType]
-  );
-}
-
-export async function getWrappedVaultKey(userId) {
-  const { rows } = await pool.query(
-    `SELECT wrapped_key, key_type FROM user_vault_keys WHERE user_id = $1`,
-    [userId]
-  );
-  return rows[0] || null;
-}
-
-// ── Chat thread queries ────────────────────────────────────────
-
-export async function createThread(userId, title) {
-  const { rows } = await pool.query(
-    `INSERT INTO chat_threads (user_id, foundry_thread_id, title)
-     VALUES ($1, '', $2) RETURNING *`,
-    [userId, title]
-  );
-  return rows[0];
-}
-
-// Keep for backward compat — delegates to createThread
-export async function getOrCreateThread(userId, foundryThreadId, title) {
-  const { rows } = await pool.query(
-    `INSERT INTO chat_threads (user_id, foundry_thread_id, title)
-     VALUES ($1, $2, $3) RETURNING *`,
-    [userId, foundryThreadId, title]
-  );
-  return rows[0];
-}
-
-export async function getUserThreads(userId) {
-  const { rows } = await pool.query(
-    `SELECT id, foundry_thread_id, title, created_at, updated_at
-     FROM chat_threads WHERE user_id = $1 ORDER BY updated_at DESC`,
-    [userId]
-  );
-  return rows;
-}
-
-export async function deleteThread(userId, threadId) {
-  // Try by foundry_thread_id first (legacy), then by id
-  let { rows } = await pool.query(
-    `DELETE FROM chat_threads WHERE user_id = $1 AND foundry_thread_id = $2 RETURNING *`,
-    [userId, threadId]
-  );
-  if (!rows[0] && !isNaN(threadId)) {
-    ({ rows } = await pool.query(
-      `DELETE FROM chat_threads WHERE user_id = $1 AND id = $2 RETURNING *`,
-      [userId, Number(threadId)]
-    ));
-  }
-  return rows[0] || null;
-}
-
-export async function getThreadById(threadId) {
-  const { rows } = await pool.query(
-    `SELECT * FROM chat_threads WHERE id = $1`,
-    [threadId]
-  );
-  return rows[0] || null;
-}
-
-// ── Chat message queries ───────────────────────────────────────
-
-export async function addChatMessage(threadId, role, content, vaultKey = null) {
-  const stored = vaultKey ? encrypt(content, vaultKey) : content;
-  const { rows } = await pool.query(
-    `INSERT INTO chat_messages (thread_id, role, content)
-     VALUES ($1, $2, $3) RETURNING *`,
-    [threadId, role, stored]
-  );
-  // Touch updated_at on the thread
-  await pool.query(
-    `UPDATE chat_threads SET updated_at = NOW() WHERE id = $1`,
-    [threadId]
-  );
-  return rows[0];
-}
-
-export async function getChatMessages(threadId, vaultKey = null) {
-  const { rows } = await pool.query(
-    `SELECT id, role, content, created_at FROM chat_messages
-     WHERE thread_id = $1 ORDER BY created_at ASC`,
-    [threadId]
-  );
-  if (vaultKey) {
-    for (const row of rows) {
-      if (isEncrypted(row.content)) {
-        row.content = decrypt(row.content, vaultKey);
-      }
-    }
-  }
-  return rows;
-}
-
-export async function getChatMessageCount(threadId) {
-  const { rows } = await pool.query(
-    `SELECT COUNT(*)::int AS count FROM chat_messages WHERE thread_id = $1`,
-    [threadId]
-  );
-  return rows[0].count;
-}
-
-export async function updateThreadSummary(threadId, summary, vaultKey = null) {
-  const stored = vaultKey ? encrypt(summary, vaultKey) : summary;
-  await pool.query(
-    `UPDATE chat_threads SET summary = $2, updated_at = NOW() WHERE id = $1`,
-    [threadId, stored]
-  );
-}
-
-export async function getThreadSummary(threadId, vaultKey = null) {
-  const { rows } = await pool.query(
-    `SELECT summary FROM chat_threads WHERE id = $1`,
-    [threadId]
-  );
-  const raw = rows[0]?.summary || null;
-  if (raw && vaultKey && isEncrypted(raw)) {
-    return decrypt(raw, vaultKey);
-  }
-  return raw;
-}
-
-export async function getThreadLastResponseId(threadId) {
-  const { rows } = await pool.query(
-    `SELECT last_response_id FROM chat_threads WHERE id = $1`,
-    [threadId]
-  );
-  return rows[0]?.last_response_id || null;
-}
-
-export async function updateThreadLastResponseId(threadId, responseId) {
-  await pool.query(
-    `UPDATE chat_threads SET last_response_id = $1, updated_at = NOW() WHERE id = $2`,
-    [responseId, threadId]
-  );
-}
-
-export async function getThreadFoundryConversationId(threadId) {
-  const { rows } = await pool.query(
-    `SELECT foundry_conversation_id FROM chat_threads WHERE id = $1`,
-    [threadId]
-  );
-  return rows[0]?.foundry_conversation_id || null;
-}
-
-export async function updateThreadFoundryConversationId(threadId, conversationId) {
-  await pool.query(
-    `UPDATE chat_threads SET foundry_conversation_id = $1, updated_at = NOW() WHERE id = $2`,
-    [conversationId, threadId]
-  );
 }
 
 export default pool;

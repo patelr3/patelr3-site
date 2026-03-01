@@ -123,15 +123,14 @@ All ACA secrets use Key Vault references (`keyVaultUrl` + user-assigned managed 
 
 | AKV Secret | Used By |
 |------------|---------|
-| `google-client-id`, `google-client-secret` | auth-api |
-| `jwt-secret` | auth-api, hello-world, hello-world-restricted, mcp-server |
+| `firebase-api-key` | frontend (build arg) |
+| `firebase-auth-domain` | frontend (build arg) |
+| `firebase-project-id` | frontend (build arg), auth-api, hello-world, hello-world-restricted, mcp-server |
+| `google-client-id`, `google-client-secret` | auth-api (OIDC only) |
+| `jwt-secret` | auth-api (OIDC only) |
 | `database-url` | auth-api |
 | `finance-api-key` | auth-api, mcp-server |
-| `foundry-project-endpoint`, `foundry-agent-name` | auth-api |
-| `foundry-mcp-connection-id` | auth-api |
-| `oidc-foundry-client-secret` | auth-api |
 | `oidc-signing-key-jwk` | auth-api |
-| `chat-encryption-key` | auth-api |
 | `postgres-password` | postgres (Bicep param) |
 
 ## Service Visibility

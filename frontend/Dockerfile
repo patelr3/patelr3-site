@@ -1,5 +1,10 @@
 FROM node:20-alpine AS build
 
+# Firebase config — injected from AKV in CI, hardcoded fallback in firebase.js for local dev
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install

@@ -1,8 +1,13 @@
+import { jest } from "@jest/globals";
 import request from "supertest";
-import jwt from "jsonwebtoken";
-import app from "../src/app.js";
 
-const SECRET = "change-me";
+const mockJwtVerify = jest.fn();
+jest.unstable_mockModule("jose", () => ({
+  createRemoteJWKSet: () => {},
+  jwtVerify: mockJwtVerify,
+}));
+
+const { default: app } = await import("../src/app.js");
 
 describe("hello-world-restricted", () => {
   test("GET /health returns 200 with status ok", async () => {
@@ -18,14 +23,16 @@ describe("hello-world-restricted", () => {
     expect(res.body.service).toBe("hello-world-restricted");
   });
 
-  test("GET / with valid JWT cookie returns greeting with JWT email", async () => {
-    const token = jwt.sign({ email: "alice@example.com", role: "admin" }, SECRET);
+  test("GET / with valid Firebase token cookie returns greeting with email", async () => {
+    mockJwtVerify.mockResolvedValueOnce({
+      payload: { email: "alice@example.com", sub: "firebase-uid" },
+    });
     const res = await request(app)
       .get("/")
-      .set("Cookie", `access_token=${token}`);
+      .set("Cookie", "access_token=valid.firebase.token");
     expect(res.status).toBe(200);
     expect(res.body.message).toContain("alice@example.com");
-    expect(res.body.role).toBe("admin");
+    expect(res.body.role).toBe("user");
   });
 
   test("response always includes secret field", async () => {
