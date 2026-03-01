@@ -288,8 +288,41 @@ describe("Chat API", () => {
       expect(mockResponsesCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           previous_response_id: "resp_456",
-        })
+        }),
+        expect.anything()
       );
+    });
+
+    it("passes agent_reference via options.body (not extra_body)", async () => {
+      const token = mockFirebaseAuth(testUser);
+
+      const events = [
+        {
+          type: "response.completed",
+          response: { id: "resp_100", status: "completed" },
+        },
+      ];
+
+      mockResponsesCreate.mockResolvedValue({
+        [Symbol.asyncIterator]: async function* () {
+          for (const event of events) yield event;
+        },
+      });
+
+      await request(app)
+        .post("/auth/chat/conversations/conv_123/messages")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ message: "hi" });
+
+      // Verify agent_reference is in the second arg (options.body), not in the first arg or extra_body
+      const [body, options] = mockResponsesCreate.mock.calls[0];
+      expect(body).not.toHaveProperty("extra_body");
+      expect(body).toHaveProperty("model", "gpt-4.1");
+      expect(options).toEqual({
+        body: {
+          agent_reference: { name: "test-agent", type: "agent_reference" },
+        },
+      });
     });
   });
 });

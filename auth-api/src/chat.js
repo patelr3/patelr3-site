@@ -97,15 +97,12 @@ router.post("/chat/conversations/:id/messages", async (req, res) => {
         ...(previousResponseId && { previous_response_id: previousResponseId }),
       };
 
-      // Use agent_reference — agent has model, instructions, and MCP tools configured server-side
-      // model is required by the API even with agent_reference (agent overrides it)
-      const response = await openaiClient.responses.create({
-        model: "gpt-4.1",
-        ...requestBody,
-        extra_body: {
-          agent_reference: { name: config.foundryAgentName, type: "agent_reference" },
-        },
-      });
+      // Use agent_reference — agent has model, instructions, and MCP tools configured server-side.
+      // The @azure/ai-projects SDK merges options.body into the request body (see overwriteOpenAIClient.js).
+      const response = await openaiClient.responses.create(
+        { model: "gpt-4.1", ...requestBody },
+        { body: { agent_reference: { name: config.foundryAgentName, type: "agent_reference" } } }
+      );
 
       let responseId = null;
 
