@@ -23,7 +23,7 @@ function getClients() {
       config.foundryProjectEndpoint,
       new DefaultAzureCredential()
     );
-    openaiClient = projectClient.getOpenAIClient();
+    openaiClient = projectClient.getOpenAIClient({ maxRetries: 5 });
   }
   return { projectClient, openaiClient };
 }
@@ -189,8 +189,11 @@ router.post("/chat/conversations/:id/messages", async (req, res) => {
     } catch (err) {
       rootSpan.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
       console.error("[chat] Stream error:", err.message);
+      const isRateLimit = err.status === 429 || err.code === "rate_limit_exceeded";
       writeSseEvent(res, "error", {
-        error: err.message,
+        error: isRateLimit
+          ? "SunnieAI is a bit busy right now — please try again in a moment."
+          : err.message,
         correlationId: rootSpan.spanContext().traceId,
       });
     } finally {
