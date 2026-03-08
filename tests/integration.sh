@@ -49,11 +49,15 @@ echo ""
 echo "MCP Server:"
 check_json "MCP health check returns ok" "$BASE_URL/api/mcp/health" "status" "ok"
 
-MCP_TOOLS=$(curl -s "$BASE_URL/api/mcp/tools" | python3 -c "import sys,json; print(len(json.loads(sys.stdin.read()).get('tools',[])))" 2>/dev/null || echo "0")
+MCP_TOOLS=$(curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' \
+  "$BASE_URL/api/mcp/mcp" | python3 -c "import sys,json; print(len(json.loads(sys.stdin.read()).get('result',{}).get('tools',[])))" 2>/dev/null || echo "0")
 if [ "$MCP_TOOLS" -gt "15" ]; then pass "MCP tools/list returns $MCP_TOOLS tools"; else fail "MCP tools/list" "expected >15 tools, got $MCP_TOOLS"; fi
 
-MCP_UNAUTH=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"name":"list_budgets","arguments":{}}' "$BASE_URL/api/mcp/tools/call")
-if [ "$MCP_UNAUTH" = "401" ]; then pass "MCP tool call without auth returns 401"; else fail "MCP tool call without auth" "expected 401, got $MCP_UNAUTH"; fi
+MCP_UNAUTH=$(curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","id":2,"params":{"name":"list_budgets","arguments":{}}}' \
+  "$BASE_URL/api/mcp/mcp" | python3 -c "import sys,json; r=json.loads(sys.stdin.read()); print('auth_error' if r.get('result',{}).get('isError') and 'Authentication' in r.get('result',{}).get('content',[{}])[0].get('text','') else 'ok')" 2>/dev/null || echo "fail")
+if [ "$MCP_UNAUTH" = "auth_error" ]; then pass "MCP tool call without auth returns auth error"; else fail "MCP tool call without auth" "expected auth error, got $MCP_UNAUTH"; fi
 
 # ── OIDC Discovery ──────────────────────────────────────────────
 echo ""
