@@ -76,7 +76,10 @@ export async function initDb() {
       ('hello-world-restricted', 'Hello World (Restricted)', 'A restricted micro-service — request access to use it.', '/api/hello-restricted/', true, true),
       ('actualbudget', 'Actual Budget', 'Self-hosted personal finance manager.', '/services/actualbudget', false, true),
       ('buddyburn', 'BuddyBurn', 'An app that helps buddies burn calories. Workout with your workout partner anywhere, anytime together!', 'https://burnbuddy.arayosun.com', true, false)
-    ON CONFLICT (slug) DO NOTHING
+    ON CONFLICT (slug) DO UPDATE SET
+      name = EXCLUDED.name,
+      description = EXCLUDED.description,
+      endpoint_url = EXCLUDED.endpoint_url
   `);
 
   // Ensure admin user gets admin role if they already exist
