@@ -10,7 +10,8 @@
   },
   "jest": {
     "transform": {},
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "testPathIgnorePatterns": ["/node_modules/", "/node_modules_old/"]
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",

@@ -52,9 +52,20 @@ export default function Dashboard({ user }) {
           )}
 
           {svc.hasAccess ? (
-            <button onClick={() => navigate(`/services/${svc.slug}`)}>
-              Open Service
-            </button>
+            svc.endpointUrl?.match(/^https?:\/\//) ? (
+              <a
+                href={svc.endpointUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-external"
+              >
+                Visit Site ↗
+              </a>
+            ) : (
+              <button onClick={() => navigate(`/services/${svc.slug}`)}>
+                Open Service
+              </button>
+            )
           ) : svc.pendingRequest ? (
             <button disabled className="btn-pending">Access Requested</button>
           ) : (

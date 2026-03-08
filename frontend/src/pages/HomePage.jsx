@@ -7,6 +7,12 @@ const SERVICE_PREVIEWS = [
       "A self-hosted personal finance manager. Each user gets their own isolated cloud instance.",
     icon: "💰",
   },
+  {
+    name: "BuddyBurn",
+    description:
+      "An app that helps buddies burn calories. Workout with your workout partner anywhere, anytime together!",
+    icon: "🔥",
+  },
 ];
 
 export default function HomePage({ user }) {

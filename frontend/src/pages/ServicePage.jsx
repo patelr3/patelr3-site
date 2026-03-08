@@ -61,6 +61,15 @@ const SERVICE_DETAILS = {
                                           │  └────────────────────────────┘  │
                                           └──────────────────────────────────┘`,
   },
+  buddyburn: {
+    purpose:
+      "BuddyBurn helps you and your workout partner stay accountable. Track workouts, burn calories, and stay motivated — together, from anywhere.",
+    sourceUrl: "https://github.com/patelr3/buddyburn",
+    architecture: [
+      "Hosted externally at buddyburn.arayosun.com — not part of the patelr3-site infrastructure.",
+      "Source code lives in the patelr3/buddyburn GitHub repository.",
+    ],
+  },
 };
 
 export default function ServicePage({ user }) {
@@ -77,6 +86,7 @@ export default function ServicePage({ user }) {
   const [deployAction, setDeployAction] = useState("");
 
   const isDeployable = DEPLOYABLE_SERVICES.includes(slug);
+  const isExternal = service?.endpointUrl?.match(/^https?:\/\//) != null;
 
   useEffect(() => {
     authFetch(api.services())
@@ -167,6 +177,15 @@ export default function ServicePage({ user }) {
             onAction={deploymentAction}
             onRefresh={fetchDeployStatus}
           />
+        ) : isExternal ? (
+          <a
+            href={service.endpointUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-external"
+          >
+            Visit Site ↗
+          </a>
         ) : (
           <>
             <button onClick={callService} disabled={calling}>

@@ -120,6 +120,7 @@ app.get("/auth/services", requireAuth, async (req, res) => {
         slug: s.slug,
         name: s.name,
         description: s.description,
+        endpointUrl: s.endpoint_url,
         isVisible: s.is_visible,
         isRestricted: s.is_restricted,
         hasAccess: isAdmin || !s.is_restricted || accessIds.includes(s.id),
