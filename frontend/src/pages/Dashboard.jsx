@@ -53,14 +53,9 @@ export default function Dashboard({ user }) {
 
           {svc.hasAccess ? (
             svc.endpointUrl?.match(/^https?:\/\//) ? (
-              <a
-                href={svc.endpointUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-external"
-              >
+              <button onClick={() => window.open(svc.endpointUrl, "_blank", "noopener,noreferrer")}>
                 Visit Site ↗
-              </a>
+              </button>
             ) : (
               <button onClick={() => navigate(`/services/${svc.slug}`)}>
                 Open Service

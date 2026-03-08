@@ -75,7 +75,7 @@ export async function initDb() {
       ('hello-world', 'Hello World', 'A sample micro-service running in its own container.', '/api/hello/', true, false),
       ('hello-world-restricted', 'Hello World (Restricted)', 'A restricted micro-service — request access to use it.', '/api/hello-restricted/', true, true),
       ('actualbudget', 'Actual Budget', 'Self-hosted personal finance manager.', '/services/actualbudget', false, true),
-      ('buddyburn', 'BuddyBurn', 'An app that helps buddies burn calories. Workout with your workout partner anywhere, anytime together!', 'https://buddyburn.arayosun.com', true, false)
+      ('buddyburn', 'BuddyBurn', 'An app that helps buddies burn calories. Workout with your workout partner anywhere, anytime together!', 'https://burnbuddy.arayosun.com', true, false)
     ON CONFLICT (slug) DO NOTHING
   `);
 
