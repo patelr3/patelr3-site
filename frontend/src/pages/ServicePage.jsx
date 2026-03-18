@@ -61,13 +61,13 @@ const SERVICE_DETAILS = {
                                           │  └────────────────────────────┘  │
                                           └──────────────────────────────────┘`,
   },
-  buddyburn: {
+  burnbuddy: {
     purpose:
-      "BuddyBurn helps you and your workout partner stay accountable. Track workouts, burn calories, and stay motivated — together, from anywhere.",
-    sourceUrl: "https://github.com/patelr3/buddyburn",
+      "BurnBuddy helps you and your workout partner stay accountable. Track workouts, burn calories, and stay motivated — together, from anywhere.",
+    sourceUrl: "https://github.com/patelr3/burnbuddy",
     architecture: [
       "Hosted externally at burnbuddy.arayosun.com — not part of the patelr3-site infrastructure.",
-      "Source code lives in the patelr3/buddyburn GitHub repository.",
+      "Source code lives in the patelr3/burnbuddy GitHub repository.",
     ],
   },
 };

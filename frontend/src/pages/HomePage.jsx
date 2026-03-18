@@ -8,10 +8,11 @@ const SERVICE_PREVIEWS = [
     icon: "💰",
   },
   {
-    name: "BuddyBurn",
+    name: "BurnBuddy",
     description:
       "An app that helps buddies burn calories. Workout with your workout partner anywhere, anytime together!",
     icon: "🔥",
+    url: "https://burnbuddy.arayosun.com",
   },
 ];
 
@@ -45,7 +46,7 @@ export default function HomePage({ user }) {
           {SERVICE_PREVIEWS.map((svc) => (
             <div key={svc.name} className="preview-card">
               <span className="preview-icon">{svc.icon}</span>
-              <h3>{svc.name}</h3>
+              <h3>{svc.url ? <a href={svc.url} target="_blank" rel="noopener noreferrer">{svc.name}</a> : svc.name}</h3>
               <p>{svc.description}</p>
             </div>
           ))}

@@ -15,6 +15,7 @@ const config = {
   oidcClients: {
     [process.env.OIDC_CLIENT_ID || "actualbudget"]: { secret: process.env.OIDC_CLIENT_SECRET || process.env.JWT_SECRET || "change-me" },
     "foundry-agent": { secret: process.env.OIDC_FOUNDRY_CLIENT_SECRET || process.env.JWT_SECRET || "change-me" },
+    "burnbuddy": { secret: process.env.OIDC_BURNBUDDY_CLIENT_SECRET || process.env.JWT_SECRET || "change-me" },
   },
   oidcSigningKeyJwk: process.env.OIDC_SIGNING_KEY_JWK || "",
   jwtSecret: process.env.JWT_SECRET || "change-me",  // kept for OIDC backward compat only

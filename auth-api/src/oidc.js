@@ -230,13 +230,13 @@ router.get("/callback", async (req, res) => {
     });
     const userinfo = await userinfoRes.json();
 
-    // Upsert user in our database (reuse existing logic)
-    const { upsertGoogleUser } = await import("./db.js");
-    const user = await upsertGoogleUser({
-      id: userinfo.sub,
-      displayName: userinfo.name,
-      emails: [{ value: userinfo.email }],
-      photos: [{ value: userinfo.picture }],
+    // Upsert user in our database — use Firebase upsert with Google userinfo
+    const { upsertFirebaseUser } = await import("./db.js");
+    const user = await upsertFirebaseUser({
+      uid: `google:${userinfo.sub}`,
+      email: userinfo.email,
+      name: userinfo.name,
+      picture: userinfo.picture,
     });
 
     // Generate authorization code for ActualBudget

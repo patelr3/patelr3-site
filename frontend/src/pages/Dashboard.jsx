@@ -53,9 +53,16 @@ export default function Dashboard({ user }) {
 
           {svc.hasAccess ? (
             svc.endpointUrl?.match(/^https?:\/\//) ? (
-              <button onClick={() => window.open(svc.endpointUrl, "_blank", "noopener,noreferrer")}>
-                Visit Site ↗
-              </button>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                <button onClick={() => window.open(svc.endpointUrl, "_blank", "noopener,noreferrer")}>
+                  Visit Site ↗
+                </button>
+                {svc.slug === "burnbuddy" && (
+                  <button className="btn-secondary" onClick={() => window.open("https://github.com/patelr3/burnbuddy", "_blank", "noopener,noreferrer")}>
+                    GitHub ↗
+                  </button>
+                )}
+              </div>
             ) : (
               <button onClick={() => navigate(`/services/${svc.slug}`)}>
                 Open Service
