@@ -10,6 +10,7 @@ const mockDb = {
   updateService: jest.fn(),
   getUserAccess: jest.fn(),
   grantAccess: jest.fn(),
+  revokeAccess: jest.fn(),
   createAccessRequest: jest.fn(),
   listAccessRequests: jest.fn(),
   updateAccessRequest: jest.fn(),
@@ -352,5 +353,96 @@ describe("DELETE /auth/users/:id", () => {
       .set("Cookie", `access_token=${token}`);
 
     expect(res.status).toBe(404);
+  });
+});
+
+// ── GET /auth/users/:id/access ─────────────────────────────────
+
+describe("GET /auth/users/:id/access", () => {
+  it("returns 403 for regular user", async () => {
+    const dbUser = { id: 1, email: "test@test.com", display_name: "Test", role: "user" };
+    const token = mockFirebaseAuth(dbUser);
+    const res = await request(app)
+      .get("/auth/users/5/access")
+      .set("Cookie", `access_token=${token}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("returns service IDs for admin", async () => {
+    mockDb.getUserAccess.mockResolvedValue([1, 3, 5]);
+    const dbUser = { id: 99, email: "admin@test.com", display_name: "Admin", role: "admin" };
+    const token = mockFirebaseAuth(dbUser);
+    const res = await request(app)
+      .get("/auth/users/5/access")
+      .set("Cookie", `access_token=${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([1, 3, 5]);
+    expect(mockDb.getUserAccess).toHaveBeenCalledWith(5);
+  });
+});
+
+// ── POST /auth/users/:id/access ────────────────────────────────
+
+describe("POST /auth/users/:id/access", () => {
+  it("returns 403 for regular user", async () => {
+    const dbUser = { id: 1, email: "test@test.com", display_name: "Test", role: "user" };
+    const token = mockFirebaseAuth(dbUser);
+    const res = await request(app)
+      .post("/auth/users/5/access")
+      .send({ serviceId: 2 })
+      .set("Cookie", `access_token=${token}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 400 without serviceId", async () => {
+    const dbUser = { id: 99, email: "admin@test.com", display_name: "Admin", role: "admin" };
+    const token = mockFirebaseAuth(dbUser);
+    const res = await request(app)
+      .post("/auth/users/5/access")
+      .send({})
+      .set("Cookie", `access_token=${token}`);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/serviceId/);
+  });
+
+  it("grants access for admin", async () => {
+    mockDb.grantAccess.mockResolvedValue(undefined);
+    const dbUser = { id: 99, email: "admin@test.com", display_name: "Admin", role: "admin" };
+    const token = mockFirebaseAuth(dbUser);
+    const res = await request(app)
+      .post("/auth/users/5/access")
+      .send({ serviceId: 2 })
+      .set("Cookie", `access_token=${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(mockDb.grantAccess).toHaveBeenCalledWith(5, 2);
+  });
+});
+
+// ── DELETE /auth/users/:id/access/:serviceId ───────────────────
+
+describe("DELETE /auth/users/:id/access/:serviceId", () => {
+  it("returns 403 for regular user", async () => {
+    const dbUser = { id: 1, email: "test@test.com", display_name: "Test", role: "user" };
+    const token = mockFirebaseAuth(dbUser);
+    const res = await request(app)
+      .delete("/auth/users/5/access/2")
+      .set("Cookie", `access_token=${token}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("revokes access for admin", async () => {
+    mockDb.revokeAccess.mockResolvedValue(true);
+    const dbUser = { id: 99, email: "admin@test.com", display_name: "Admin", role: "admin" };
+    const token = mockFirebaseAuth(dbUser);
+    const res = await request(app)
+      .delete("/auth/users/5/access/2")
+      .set("Cookie", `access_token=${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(mockDb.revokeAccess).toHaveBeenCalledWith(5, 2);
   });
 });

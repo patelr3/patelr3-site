@@ -7,7 +7,7 @@ import config from "./config.js";
 import {
   upsertFirebaseUser, findUserByEmail,
   listServices, getServiceBySlug, updateService,
-  getUserAccess, grantAccess,
+  getUserAccess, grantAccess, revokeAccess,
   createAccessRequest, listAccessRequests, updateAccessRequest, getUserPendingRequests,
   findUserById, listUsers, updateUserRole, touchLastLogin, deleteUser,
 } from "./db.js";
@@ -249,6 +249,39 @@ app.delete("/auth/users/:id", requireAuth, requireAdmin, async (req, res) => {
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: "Failed to delete user" });
+  }
+});
+
+// ── Admin: user service access management ───────────────────────
+
+app.get("/auth/users/:id/access", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const serviceIds = await getUserAccess(Number(req.params.id));
+    res.json(serviceIds);
+  } catch {
+    res.status(500).json({ error: "Failed to get user access" });
+  }
+});
+
+app.post("/auth/users/:id/access", requireAuth, requireAdmin, async (req, res) => {
+  const { serviceId } = req.body;
+  if (!serviceId) {
+    return res.status(400).json({ error: "serviceId is required" });
+  }
+  try {
+    await grantAccess(Number(req.params.id), Number(serviceId));
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: "Failed to grant access" });
+  }
+});
+
+app.delete("/auth/users/:id/access/:serviceId", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await revokeAccess(Number(req.params.id), Number(req.params.serviceId));
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: "Failed to revoke access" });
   }
 });
 

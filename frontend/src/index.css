@@ -276,6 +276,14 @@ nav a { text-decoration: none; }
 .action-btns { display: flex; gap: 0.5rem; }
 .btn-approve { background: #27ae60; color: #fff; border: none; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
 .btn-deny { background: #c0392b; color: #fff; border: none; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+.btn-secondary { background: #3498db; color: #fff; border: none; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+.btn-secondary.active { background: #2980b9; box-shadow: inset 0 1px 3px rgba(0,0,0,0.2); }
+.access-row td { background: #f5f9ff; }
+.access-panel { padding: 0.5rem 0; }
+.access-panel strong { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; }
+.access-toggles { display: flex; flex-direction: column; gap: 0.4rem; }
+.access-toggle-row { display: flex; align-items: center; justify-content: space-between; max-width: 350px; gap: 1rem; }
+.access-toggle-row span { font-size: 0.85rem; }
 
 /* ── Account Page ──────────────────────────────── */
 .account-card {

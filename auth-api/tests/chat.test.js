@@ -31,6 +31,7 @@ const mockDb = {
   updateService: jest.fn(),
   getUserAccess: jest.fn(),
   grantAccess: jest.fn(),
+  revokeAccess: jest.fn(),
   createAccessRequest: jest.fn(),
   listAccessRequests: jest.fn(),
   updateAccessRequest: jest.fn(),

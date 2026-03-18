@@ -244,6 +244,14 @@ export async function grantAccess(userId, serviceId) {
   );
 }
 
+export async function revokeAccess(userId, serviceId) {
+  const { rowCount } = await pool.query(
+    "DELETE FROM user_service_access WHERE user_id = $1 AND service_id = $2",
+    [userId, serviceId]
+  );
+  return rowCount > 0;
+}
+
 export async function createAccessRequest(userId, serviceId) {
   // Remove any previously denied request so user can re-request
   await pool.query(

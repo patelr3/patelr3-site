@@ -19,6 +19,8 @@ const api = {
   users: () => "/api/auth/users",
   userRole: (id) => `/api/auth/users/${id}/role`,
   userDelete: (id) => `/api/auth/users/${id}`,
+  userAccess: (id) => `/api/auth/users/${id}/access`,
+  userAccessRevoke: (userId, serviceId) => `/api/auth/users/${userId}/access/${serviceId}`,
 
   // Deployments
   deploymentStatus: (slug) => `/api/auth/deployments/${slug}`,

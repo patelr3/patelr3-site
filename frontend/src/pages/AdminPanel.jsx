@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { authFetch } from "../App";
 import api from "../api";
 
@@ -13,6 +13,10 @@ export default function AdminPanel({ user }) {
   const [roleFilter, setRoleFilter] = useState("all");
   // Inline role editing
   const [editingRole, setEditingRole] = useState(null);
+  // Access management
+  const [managingAccess, setManagingAccess] = useState(null);
+  const [userAccess, setUserAccess] = useState([]);
+  const [accessLoading, setAccessLoading] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -68,6 +72,37 @@ export default function AdminPanel({ user }) {
     if (res.ok) fetchData();
   };
 
+  const openAccessPanel = async (userId) => {
+    if (managingAccess === userId) {
+      setManagingAccess(null);
+      return;
+    }
+    setManagingAccess(userId);
+    setAccessLoading(true);
+    try {
+      const res = await authFetch(api.userAccess(userId));
+      if (res.ok) setUserAccess(await res.json());
+    } catch { /* ignore */ }
+    setAccessLoading(false);
+  };
+
+  const toggleAccess = async (userId, serviceId, hasAccess) => {
+    if (hasAccess) {
+      await authFetch(api.userAccessRevoke(userId, serviceId), { method: "DELETE" });
+    } else {
+      await authFetch(api.userAccess(userId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serviceId }),
+      });
+    }
+    // Refresh access list
+    const res = await authFetch(api.userAccess(userId));
+    if (res.ok) setUserAccess(await res.json());
+  };
+
+  const restrictedServices = services.filter((s) => s.isRestricted);
+
   const filteredUsers = users.filter((u) => {
     const matchesSearch = !search ||
       u.email.toLowerCase().includes(search.toLowerCase()) ||
@@ -117,7 +152,8 @@ export default function AdminPanel({ user }) {
           </thead>
           <tbody>
             {filteredUsers.map((u) => (
-              <tr key={u.id}>
+              <React.Fragment key={u.id}>
+              <tr>
                 <td>{u.email}</td>
                 <td>{u.display_name}</td>
                 <td>
@@ -156,16 +192,57 @@ export default function AdminPanel({ user }) {
                   {isSelf(u) ? (
                     <span style={{ color: "#999", fontSize: "0.8rem" }}>You</span>
                   ) : (
-                    <button
-                      className="btn-deny"
-                      onClick={() => handleDeleteUser(u.id, u.email)}
-                      title="Delete account"
-                    >
-                      Delete
-                    </button>
+                    <div className="action-btns">
+                      <button
+                        className={`btn-secondary${managingAccess === u.id ? " active" : ""}`}
+                        onClick={() => openAccessPanel(u.id)}
+                        title="Manage service access"
+                      >
+                        🔑 Access
+                      </button>
+                      <button
+                        className="btn-deny"
+                        onClick={() => handleDeleteUser(u.id, u.email)}
+                        title="Delete account"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   )}
                 </td>
               </tr>
+              {managingAccess === u.id && (
+                <tr key={`${u.id}-access`} className="access-row">
+                  <td colSpan={5}>
+                    <div className="access-panel">
+                      <strong>Service Access for {u.display_name || u.email}</strong>
+                      {accessLoading ? (
+                        <p style={{ color: "#999" }}>Loading…</p>
+                      ) : restrictedServices.length === 0 ? (
+                        <p style={{ color: "#999" }}>No restricted services configured.</p>
+                      ) : (
+                        <div className="access-toggles">
+                          {restrictedServices.map((svc) => {
+                            const hasAccess = userAccess.includes(svc.id);
+                            return (
+                              <div key={svc.id} className="access-toggle-row">
+                                <span>{svc.name}</span>
+                                <button
+                                  className={`toggle ${hasAccess ? "on" : "off"}`}
+                                  onClick={() => toggleAccess(u.id, svc.id, hasAccess)}
+                                >
+                                  {hasAccess ? "Granted" : "No Access"}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </React.Fragment>
             ))}
             {filteredUsers.length === 0 && (
               <tr><td colSpan={5} style={{ color: "#999", textAlign: "center" }}>No users found.</td></tr>
