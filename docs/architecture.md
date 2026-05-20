@@ -82,7 +82,7 @@ In production, the frontend container runs Nginx, which serves the SPA and rever
 | **mcp-server**          | Node.js 20 MCP SDK   | ActualBudget MCP server (OIDC auth, MCP Streamable HTTP) | 8090  |
 | **hello-world**         | Node.js 20 Express   | Sample public micro-service                          | 5000  |
 | **hello-world-restricted** | Node.js 20 Express | Sample restricted micro-service                      | 5001  |
-| **postgres**            | PostgreSQL 16        | Users, roles, services, access requests               | 5432  |
+| **postgres**            | PostgreSQL 16        | Users, roles, services, access requests — data persisted to Azure Files share | 5432  |
 
 > The MCP server code lives in [sunniebudget/mcp-server](https://github.com/patelr3/sunniebudget/tree/main/mcp-server) and is included in the local Docker Compose stack.
 
@@ -349,6 +349,17 @@ CREATE TABLE oidc_auth_codes (
 | `oidc-signing-key-jwk` | auth-api |
 | `foundry-project-endpoint` | auth-api |
 | `postgres-password` | postgres (Bicep param) |
+
+### PostgreSQL Persistent Storage
+
+PostgreSQL data is persisted to an Azure Files share (Standard_LRS, SMB) mounted at `/var/lib/postgresql/data`. The Bicep deployment creates:
+
+1. An Azure Storage Account (`${projectName}pg${uniqueString(rg.id)}`) with a `postgres-data` Azure Files share.
+2. A storage link on the Container Apps Environment referencing the share.
+3. A volume mount in the postgres container app at `/var/lib/postgresql/data` with mount options `uid=70,gid=70,dir_mode=0700,file_mode=0600` (matching PostgreSQL Alpine's `postgres` user UID/GID).
+4. `PGDATA` points to the subdirectory `/var/lib/postgresql/data/pgdata` inside the mount.
+
+> **⚠️ Warning:** Redeploying the postgres container app (e.g., changing `PGDATA` or the image) without migrating data will result in data loss if the persistent volume is not pre-populated. The Azure Files share survives container restarts and Bicep redeployments.
 
 ---
 
