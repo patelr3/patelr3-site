@@ -105,7 +105,6 @@ module authApi 'modules/container-app.bicep' = {
     imageTag: imageTag
     targetPort: 8000
     external: true
-    minReplicas: 1
     enableSystemIdentity: true
     userAssignedIdentityId: kvReaderIdentity.id
     env: [
@@ -203,7 +202,6 @@ module mcpServer 'modules/container-app.bicep' = {
     imageTag: imageTag
     targetPort: 8090
     external: true
-    minReplicas: 1
     userAssignedIdentityId: kvReaderIdentity.id
     env: [
       { name: 'OIDC_JWKS_URL', value: 'https://www.arayosun.com/api/auth/oidc/jwks' }
@@ -247,7 +245,6 @@ module frontend 'modules/container-app.bicep' = {
     imageTag: imageTag
     targetPort: 3000
     external: true
-    minReplicas: 1
     env: [
       { name: 'AUTH_API_UPSTREAM', value: 'http://${projectName}-auth-api' }
       { name: 'HELLO_API_UPSTREAM', value: 'http://${projectName}-hello-world' }
