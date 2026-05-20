@@ -35,6 +35,9 @@ var tags = {
 }
 var acrName = '${projectName}acr'
 var kvName = '${projectName}kv${uniqueString(resourceGroup().id)}'
+// Storage account name: 3-24 chars, lowercase alphanumeric only.
+// Uses uniqueString to ensure a unique but deterministic name per resource group.
+var pgStorageName = '${projectName}pg${uniqueString(resourceGroup().id)}'
 var envName = '${projectName}-cae'
 
 // Key Vault secret URL base (no trailing slash)
@@ -67,6 +70,17 @@ resource kvReaderIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023
   name: '${projectName}-kv-reader'
 }
 
+// ── PostgreSQL Persistent Storage ─────────────────────────────
+// Azure Files share for durable postgres data across container restarts/redeploys.
+module pgStorage 'modules/storage.bicep' = {
+  name: 'pg-storage'
+  params: {
+    name: pgStorageName
+    location: location
+    tags: tags
+  }
+}
+
 // ── Container Apps Environment ─────────────────────────────────
 module cae 'modules/container-apps-env.bicep' = {
   name: 'container-apps-env'
@@ -74,6 +88,9 @@ module cae 'modules/container-apps-env.bicep' = {
     name: envName
     location: location
     tags: tags
+    storageAccountName: pgStorage.outputs.storageAccountName
+    storageAccountKey: pgStorage.outputs.storageAccountKey
+    storageShareName: pgStorage.outputs.shareName
   }
 }
 
@@ -88,6 +105,7 @@ module postgres 'modules/postgres.bicep' = {
     postgresUser: postgresUser
     postgresPassword: postgresPassword
     postgresDb: postgresDb
+    caeStorageName: cae.outputs.storageName
   }
 }
 
