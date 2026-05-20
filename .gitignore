@@ -15,3 +15,4 @@ scripts/.foundry-agent-state.json
 .claude/
 .logs/
 state.json
+deployments/main.json
